@@ -20,7 +20,7 @@
  * to any type in this file. If you need one, you have misunderstood the product.
  */
 
-import type { AgeBand, StoryTheme, StoryMood, StoryLength, RenderTechnique } from './enums';
+import type { AgeBand, StoryTheme, StoryMood, StoryLength, RenderTechnique } from './enums.ts';
 
 declare const CHILD_NAME_BRAND: unique symbol;
 declare const UNTRUSTED_BRAND: unique symbol;

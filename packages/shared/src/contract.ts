@@ -26,8 +26,8 @@ import {
   ModerationVerdict, ProductId, QuotaBlockReason, RenderTechnique,
   RetentionPolicy, StoreEnvironment, StoryCharacterRole, StoryLength,
   StoryMood, StoryPageStatus, StoryStatus, StoryTheme, SubscriptionStatus,
-} from './enums';
-import { ApiError, JobErrorCode } from './errors';
+} from './enums.ts';
+import { ApiError, JobErrorCode } from './errors.ts';
 
 /** Re-exported so agents can `import { StoryTheme } from '@papercub/shared'`. */
 export {

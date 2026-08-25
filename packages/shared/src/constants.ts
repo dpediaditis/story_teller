@@ -1,4 +1,4 @@
-import type { StoryLength, ProductId } from './enums';
+import type { StoryLength, ProductId } from './enums.ts';
 
 /**
  * Every number DECISIONS.md fixes. If a value appears here it must NOT be

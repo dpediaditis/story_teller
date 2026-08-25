@@ -17,10 +17,10 @@ import type {
   ProductId, RenderTechnique, RetentionPolicy, StoreEnvironment,
   StoryCharacterRole, StoryPageStatus, StoryStatus, StoryTheme, StoryMood,
   StoryLength, SubscriptionStatus,
-} from './enums';
-import type { ChildDisplayName } from './prompt-safety';
-import type { JobErrorCode } from './errors';
-import type { StorageKey } from './storage';
+} from './enums.ts';
+import type { ChildDisplayName } from './prompt-safety.ts';
+import type { JobErrorCode } from './errors.ts';
+import type { StorageKey } from './storage.ts';
 
 /* ── Branded ids ───────────────────────────────────────────────────────── */
 
