@@ -634,6 +634,16 @@ export const NarrationJobPayload = JobPayloadBase.extend({
   language: z.string(),
 });
 
+/**
+ * Inferred types for each payload. The schema and its type share a name, per
+ * the convention used throughout this file — a zod const and a TS type occupy
+ * different namespaces, so both are importable as `JobPayload` etc.
+ */
+export type CharacterBuildJobPayload = z.infer<typeof CharacterBuildJobPayload>;
+export type StoryGenerateJobPayload = z.infer<typeof StoryGenerateJobPayload>;
+export type PageRegenerateJobPayload = z.infer<typeof PageRegenerateJobPayload>;
+export type NarrationJobPayload = z.infer<typeof NarrationJobPayload>;
+
 export const JobPayload = z.discriminatedUnion('type', [
   CharacterBuildJobPayload,
   StoryGenerateJobPayload,

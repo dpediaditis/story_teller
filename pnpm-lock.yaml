@@ -123,6 +123,9 @@ importers:
 
   packages/vision-module:
     dependencies:
+      '@papercub/shared':
+        specifier: workspace:*
+        version: link:../shared
       expo:
         specifier: '*'
         version: 51.0.39(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(react-native@0.74.5(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(@types/react@18.2.79)(react@18.2.0))(react@18.2.0)

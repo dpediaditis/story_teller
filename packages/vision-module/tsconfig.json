@@ -5,7 +5,11 @@
     "moduleResolution": "Bundler",
     "module": "ESNext",
     "outDir": "./dist",
-    "rootDir": "./src"
+    "rootDir": ".",
+    "noEmit": true
   },
-  "include": ["src", "plugin"]
+  "include": [
+    "src",
+    "plugin"
+  ]
 }

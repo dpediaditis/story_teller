@@ -1,0 +1,172 @@
+import { useCallback, useState } from 'react';
+import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import type { StorySummaryDto } from '@papercub/shared';
+import { Screen, Text, EyebrowLabel, Button } from '../../components';
+import { apiClient } from '../../lib/api';
+import { colour, inkAlpha, radius, spacing, themeColour } from '../../theme';
+
+/** E1 — Stories home, with the E2 empty state when the library has nothing yet. */
+export function StoriesHomeScreen() {
+  const [stories, setStories] = useState<StorySummaryDto[] | null>(null);
+  const [favouritesOnly, setFavouritesOnly] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = useCallback(async () => {
+    const res = await apiClient.call('listStories', { favouritesOnly, limit: 50, cursor: null });
+    setStories(res.stories);
+  }, [favouritesOnly]);
+
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load]),
+  );
+
+  async function onRefresh() {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }
+
+  if (stories === null) return <Screen />;
+
+  if (stories.length === 0) {
+    return (
+      <Screen>
+        <View style={styles.header}>
+          <Text variant="sectionHeading">Stories</Text>
+        </View>
+        <View style={styles.empty}>
+          <View style={styles.emptySpine} />
+          <Text variant="sectionHeading" style={{ marginTop: spacing.huge, textAlign: 'center' }}>
+            No stories yet.
+          </Text>
+          <Text variant="body" color={inkAlpha.textBody} style={{ marginTop: spacing.sm, textAlign: 'center' }}>
+            Photograph a drawing on Characters to make the first one.
+          </Text>
+          <View style={{ marginTop: spacing.huge, alignSelf: 'stretch' }}>
+            <Button label="Add a character" onPress={() => router.push('/create/camera')} />
+          </View>
+        </View>
+      </Screen>
+    );
+  }
+
+  return (
+    <Screen>
+      <View style={styles.header}>
+        <Text variant="sectionHeading">Stories</Text>
+        <View style={styles.filters}>
+          <Pressable
+            onPress={() => setFavouritesOnly(false)}
+            style={[styles.filterPill, !favouritesOnly && styles.filterPillActive]}
+          >
+            <Text variant="label" color={!favouritesOnly ? colour.paperElevated : inkAlpha.textStrong}>All</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setFavouritesOnly(true)}
+            style={[styles.filterPill, favouritesOnly && styles.filterPillActive]}
+          >
+            <Text variant="label" color={favouritesOnly ? colour.paperElevated : inkAlpha.textStrong}>♥</Text>
+          </Pressable>
+        </View>
+      </View>
+      <FlatList
+        data={stories}
+        keyExtractor={(s) => s.id}
+        numColumns={2}
+        contentContainerStyle={styles.grid}
+        columnWrapperStyle={{ gap: spacing.lgPlus }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        renderItem={({ item }) => <StorySpine story={item} />}
+      />
+    </Screen>
+  );
+}
+
+function StorySpine({ story }: { story: StorySummaryDto }) {
+  const spine = themeColour[story.theme];
+  const isGenerating = story.status === 'queued' || story.status === 'generating' || story.status === 'partial';
+  return (
+    <Pressable
+      style={styles.spineWrap}
+      onPress={() => router.push(isGenerating ? `/create/generating?storyId=${story.id}` : `/story/${story.id}/reader`)}
+    >
+      <View style={[styles.spine, { backgroundColor: spine.fill, borderLeftColor: spine.deep }]}>
+        <Text variant="sectionHeading" color={colour.paperElevated} numberOfLines={3} style={styles.spineTitle}>
+          {story.title ?? `${story.characterNames[0] ?? 'A'} story — writing…`}
+        </Text>
+        {story.favouritedAt ? <View style={styles.heart} /> : null}
+        {isGenerating ? (
+          <View style={styles.generatingBadge}>
+            <Text variant="captionMono" color={colour.paperElevated}>Making…</Text>
+          </View>
+        ) : null}
+      </View>
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create({
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing.xxl,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.lgPlus,
+  },
+  filters: { flexDirection: 'row', gap: spacing.sm },
+  filterPill: {
+    height: 36,
+    paddingHorizontal: spacing.lgPlus,
+    borderRadius: radius.pill,
+    borderWidth: 1.5,
+    borderColor: inkAlpha.borderStrong,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterPillActive: { backgroundColor: colour.ink, borderColor: colour.ink },
+  grid: { paddingHorizontal: spacing.xxl, paddingBottom: spacing.section, gap: spacing.lgPlus },
+  spineWrap: { flex: 1 },
+  spine: {
+    aspectRatio: 0.78,
+    borderRadius: 6,
+    borderTopRightRadius: radius.cardSm,
+    borderBottomRightRadius: radius.cardSm,
+    borderLeftWidth: 5,
+    padding: spacing.md,
+    justifyContent: 'flex-end',
+    overflow: 'hidden',
+  },
+  spineTitle: { fontSize: 14, lineHeight: 16 },
+  heart: {
+    position: 'absolute',
+    right: 9,
+    bottom: 9,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: colour.warning,
+  },
+  generatingBadge: {
+    position: 'absolute',
+    left: spacing.sm,
+    top: spacing.sm,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    borderRadius: radius.chip,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+  },
+  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.section },
+  emptySpine: {
+    width: 90,
+    aspectRatio: 0.78,
+    borderRadius: 6,
+    backgroundColor: colour.paperCard,
+    borderWidth: 1.5,
+    borderColor: inkAlpha.border,
+    borderStyle: 'dashed',
+  },
+});
