@@ -1,0 +1,19 @@
+# services/worker is a queue-consuming background worker — it never accepts
+# inbound HTTP traffic, so there is deliberately no [http_service] / no
+# public "services" block below. It reaches out to Supabase and AI providers,
+# it is never reached.
+app = "papercub-worker"
+primary_region = "iad"
+
+[build]
+
+[processes]
+  worker = "node dist/index.js"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  processes = ["worker"]
+
+[env]
+  WORKER_ENV = "production"

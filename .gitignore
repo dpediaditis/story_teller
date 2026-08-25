@@ -1,0 +1,21 @@
+node_modules/
+dist/
+build/
+.expo/
+*.tsbuildinfo
+.env
+!.env.example
+ios/
+android/
+!packages/vision-module/ios/
+.DS_Store
+coverage/
+supabase/.branches
+supabase/.temp
+.fly
+
+# Planning + design artefacts (kept out of the app repo history)
+PLAN.html
+DESIGN_BRIEF.md
+Design deliverables checklist.zip
+design_v2/

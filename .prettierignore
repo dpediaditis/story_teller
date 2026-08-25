@@ -1,0 +1,6 @@
+pnpm-lock.yaml
+dist
+.expo
+packages/shared/src/db.ts
+design_v2
+PLAN.html
