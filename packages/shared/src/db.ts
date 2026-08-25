@@ -581,6 +581,45 @@ export type Database = {
           },
         ]
       }
+      revenuecat_event_inbox: {
+        Row: {
+          app_user_id: string
+          attempts: number
+          environment: string
+          event_id: string
+          event_type: string
+          id: string
+          last_error: string | null
+          payload: Json
+          processed_at: string | null
+          received_at: string
+        }
+        Insert: {
+          app_user_id: string
+          attempts?: number
+          environment: string
+          event_id: string
+          event_type: string
+          id?: string
+          last_error?: string | null
+          payload: Json
+          processed_at?: string | null
+          received_at?: string
+        }
+        Update: {
+          app_user_id?: string
+          attempts?: number
+          environment?: string
+          event_id?: string
+          event_type?: string
+          id?: string
+          last_error?: string | null
+          payload?: Json
+          processed_at?: string | null
+          received_at?: string
+        }
+        Relationships: []
+      }
       stories: {
         Row: {
           character_tombstone: boolean
@@ -968,6 +1007,16 @@ export type Database = {
           p_theme: Database["public"]["Enums"]["story_theme"]
         }
         Returns: Json
+      }
+      enqueue_revenuecat_event: {
+        Args: {
+          p_app_user_id: string
+          p_environment: string
+          p_event_id: string
+          p_event_type: string
+          p_payload: Json
+        }
+        Returns: undefined
       }
       merge_accounts: {
         Args: {

@@ -23,7 +23,7 @@
 
 import { RevenueCatWebhookEvent } from '@papercub/shared';
 import { createClient } from '@supabase/supabase-js';
-import type { Database } from '@papercub/shared';
+import type { Database, Json } from '@papercub/shared';
 import { requireServiceSecret } from '../_shared/auth.ts';
 import { ApiFailure, ok, withEnvelope } from '../_shared/respond.ts';
 
@@ -33,31 +33,6 @@ const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
 type SubscriptionStatus =
   | 'none' | 'active' | 'in_grace_period' | 'in_billing_retry' | 'expired' | 'revoked' | 'paused';
 
-function mapStatus(eventType: string): SubscriptionStatus | null {
-  switch (eventType) {
-    case 'INITIAL_PURCHASE':
-    case 'RENEWAL':
-    case 'UNCANCELLATION':
-    case 'PRODUCT_CHANGE':
-    case 'TRANSFER':
-    case 'SUBSCRIPTION_EXTENDED':
-    case 'REFUND_REVERSED':
-    case 'CANCELLATION': // auto-renew off, still entitled until expiry.
-      return 'active';
-    case 'EXPIRATION':
-      return 'expired';
-    case 'BILLING_ISSUE':
-      return 'in_billing_retry';
-    case 'SUBSCRIPTION_PAUSED':
-      return 'paused';
-    case 'NON_RENEWING_PURCHASE':
-      return 'active';
-    case 'TEST':
-      return null; // acknowledged, no state change.
-    default:
-      return null;
-  }
-}
 
 Deno.serve(
   withEnvelope(async (req) => {
@@ -77,69 +52,35 @@ Deno.serve(
     }
     const { event } = parsed.data;
 
-    const status = mapStatus(event.type);
-    if (status === null) {
-      // TEST events and anything we don't map yet: acknowledge, no write.
-      return ok({});
-    }
-
-    const isTopup = event.product_id === 'papercub_topup_3';
-    const isFamilyProduct =
-      event.product_id === 'papercub_family_monthly' || event.product_id === 'papercub_family_annual';
-
-    // No user JWT exists on this request at all (server-to-server, header
-    // secret only) — use a bare anon-key client, never the service-role key.
+    // Everything below is a HANDOFF, not an entitlement decision.
+    //
+    // This function holds no user JWT and — by CLAUDE.md rule 1 — no
+    // service-role key, so it cannot write `subscriptions` itself. It records
+    // the event in an inbox and services/worker (which does hold the key)
+    // reconciles it.
+    //
+    // Critically, the worker must RE-FETCH subscriber state from the RevenueCat
+    // REST API before applying anything. The payload stored here is untrusted
+    // input, which is what makes a forged inbox row harmless: the worst it can
+    // do is trigger a redundant reconciliation of an account whose real state
+    // is then read from RevenueCat anyway.
     const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    const parentId = event.app_user_id;
-    let tier: 'free' | 'family' = 'free';
-    if (isFamilyProduct) {
-      tier = 'family';
-    } else if (isTopup) {
-      // Top-ups don't change tier; preserve whatever's on record.
-      const { data: existing } = await supabase
-        .from('subscriptions')
-        .select('tier')
-        .eq('parent_id', parentId)
-        .maybeSingle();
-      tier = existing?.tier ?? 'free';
-    }
-
-    const expiresAt = event.expiration_at_ms ? new Date(event.expiration_at_ms).toISOString() : null;
-    const renewsAt = status === 'active' ? expiresAt : null;
-
-    // The generated Database['...']['Functions'] Args types don't mark these
-    // as nullable even though the underlying SQL function's params genuinely
-    // accept NULL (see the migration) — cast rather than fight the generator.
-    const { error } = await supabase.rpc('apply_revenuecat_event', {
-      p_parent_id: parentId,
-      p_product_id: event.product_id ?? null,
-      p_tier: tier,
-      p_status: status,
-      p_renews_at: renewsAt,
-      p_expires_at: expiresAt,
-      p_original_transaction_id: event.original_transaction_id ?? null,
-      p_revenuecat_app_user_id: event.app_user_id,
+    const { error } = await supabase.rpc('enqueue_revenuecat_event', {
+      p_event_id: event.id,
+      p_app_user_id: event.app_user_id,
+      p_event_type: event.type,
       p_environment: event.environment.toLowerCase(),
-      p_is_topup: isTopup,
+      p_payload: parsed.data as unknown as Json,
       // deno-lint-ignore no-explicit-any
     } as any);
 
-    if (error) {
-      if (error.code === '42501') {
-        throw new ApiFailure('internal', {
-          message:
-            'apply_revenuecat_event insert blocked by grants: only service_role may execute it, and ' +
-            'this Edge Function does not hold SUPABASE_SERVICE_ROLE_KEY (CLAUDE.md rule 1). Needs a B1 ' +
-            'migration granting a role this function can act as.',
-          retryable: false,
-        });
-      }
-      throw error;
-    }
+    if (error) throw error;
 
+    // Acknowledge fast. RevenueCat retries on non-2xx, and redelivery is safe:
+    // the inbox is unique on event_id and conflicts are a no-op.
     return ok({});
   }),
 );

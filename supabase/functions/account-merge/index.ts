@@ -9,7 +9,7 @@
 //
 // KNOWN GAPS (both flagged in this agent's handover report, do not silently
 // retry-loop on them):
-//  1. merge_accounts() is `grant execute ... to service_role` only — same
+//  1. merge_accounts() is granted to `authenticated` and re-verifies
 //     grant mismatch as apply_revenuecat_event (see revenuecat-webhook/index.ts).
 //     This function is not allowed to hold SUPABASE_SERVICE_ROLE_KEY, so the
 //     RPC call below will fail 42501 under the schema exactly as delivered.
@@ -136,13 +136,14 @@ Deno.serve(
         p_strategy: strategy,
       });
       if (mergeError) {
+        // merge_accounts is granted to `authenticated` and re-checks ownership
+        // itself (auth.uid() must equal the target, and the source must be an
+        // unmerged anonymous account). A 42501 here means the caller failed one
+        // of those checks, not that grants are misconfigured.
         if (mergeError.code === '42501') {
-          throw new ApiFailure('internal', {
-            message:
-              'merge_accounts blocked by grants: only service_role may execute it, and this Edge ' +
-              'Function does not hold SUPABASE_SERVICE_ROLE_KEY (CLAUDE.md rule 1). Needs a B1 migration ' +
-              'granting a role this function can act as (it has already verified the merge token).',
-            retryable: false,
+          throw new ApiFailure('forbidden', {
+            message: mergeError.message,
+            copyKey: 'error.forbidden',
           });
         }
         throw mergeError;
