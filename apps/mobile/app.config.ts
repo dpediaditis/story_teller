@@ -30,6 +30,10 @@ const config: ExpoConfig = {
     supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL,
     supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
     revenueCatIosKey: process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY,
+    // Sign in with Google (B5/auth) — the native/iOS id_token flow still
+    // authenticates against a "Web" OAuth client id per Google's rules.
+    googleIosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
+    googleWebClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
     eas: {
       projectId: process.env.EAS_PROJECT_ID,
     },

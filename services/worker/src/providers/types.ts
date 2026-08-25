@@ -10,6 +10,13 @@
  * price table), never a pre-call estimate. DECISIONS.md §3.1's cost ceiling is
  * enforced on truth, not estimate, and that only works if every provider call
  * reports what it truly cost.
+ *
+ * `costCents` may be FRACTIONAL. A single fast-tier interior illustration costs
+ * well under one cent, and a 13-image bedtime book rounded down per call would
+ * under-report its true cost by most of its value. The ledger (src/cost.ts)
+ * accumulates fractional cents and only ever rounds the RUNNING TOTAL, so the
+ * integer cents written to `record_cost` track measured spend to within 1c for
+ * the whole job no matter how many calls it took.
  */
 
 import type {
@@ -20,7 +27,7 @@ import type {
 import type { IllustrationPromptInput, StoryPromptInput } from '@papercub/shared';
 
 export interface ProviderUsage {
-  /** MEASURED cost of this call, in integer cents. Never an estimate. */
+  /** MEASURED cost of this call, in cents. May be fractional. Never an estimate. */
   costCents: number;
   inputTokens: number | null;
   outputTokens: number | null;

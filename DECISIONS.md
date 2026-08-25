@@ -174,3 +174,28 @@ free story on that device indefinitely, and we carry the storage. Exposure is
 bounded by the one-off free grant ($0.61) plus ~5 MB of storage per anonymous
 user, so this is immaterial. B1 must NOT invent an `is_saved` / `is_claimed`
 column, and B3 must NOT gate reading behind sign-in.
+
+## 13. Mock vs real session — deliberate coexistence, resolve in Phase E
+
+B5 built a real `useSession()` backed by the `session` Edge Function. B3's
+screens still consume `src/features/session/SessionProvider`, which is backed by
+`mockApiClient`. Both currently mount.
+
+This is intentional for now, not an oversight:
+
+- Without Supabase credentials in `.env`, the real client falls back to a
+  placeholder URL and anonymous bootstrap fails (caught). The mock keeps the
+  whole app explorable in Expo Go, which is how the product is being previewed.
+- Cutting every screen over to the live hook before there is a Supabase project
+  to point at would make the app unrunnable for the one person reviewing it.
+
+**Resolution:** once a real Supabase project exists and `.env` is populated,
+swap `SessionProvider` to delegate to B5's `useSession()` and delete the mock
+session path. Everything else can keep using `mockApiClient` until the worker is
+deployed. Tracked as a Phase E integration task.
+
+Known follow-ups from B5:
+- `react-native-url-polyfill` is not installed. RN 0.74/Hermes is generally fine
+  for supabase-js v2, but this needs a real-device smoke test.
+- Google sign-in reports `ProviderUnavailableError` until
+  `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` is provisioned.

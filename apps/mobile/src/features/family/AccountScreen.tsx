@@ -26,8 +26,11 @@ export function AccountScreen() {
         </Text>
         {isAnonymous ? (
           <View style={{ marginTop: spacing.huge }}>
-            {/* Actual Apple/Google sign-in flow is B5's (`app/(auth)/**`). */}
-            <Button label="Sign in to keep the library" kind="secondary" onPress={() => {}} disabled />
+            <Button
+              label="Sign in to keep the library"
+              kind="secondary"
+              onPress={() => router.push({ pathname: '/(auth)/sign-in', params: { reason: 'library' } })}
+            />
           </View>
         ) : null}
         <Text variant="captionMono" color={inkAlpha.textLabel} style={{ marginTop: spacing.huge }}>
