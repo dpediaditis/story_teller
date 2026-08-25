@@ -229,3 +229,37 @@ So: refundable failures settle with `final: false` and let the refund release.
 Every other terminal path settles with `final: true`. `alreadyRefunded` releases
 nothing. There are tests over all 15 `JobErrorCode` values asserting exactly one
 release; if a change breaks them, the change is wrong.
+
+## 15. Security review findings — status
+
+E1 (Opus, read-only) reviewed the whole codebase for data leaks and unbounded
+spend. 11 findings, 4 critical. Fixed and verified against a live database:
+
+| # | Finding | Status |
+|---|---|---|
+| 3 | **Nothing ever called `pgmq.send`.** Quota was consumed, the story row written, and the job never reached the worker — so the worker-only refund path never fired either. A user's single lifetime free story was lost with nothing to show. | Fixed — the send is now inside `claim_story_quota`, in the same transaction as the claim |
+| 2 | `claim_story_quota` took the cost estimate and story length as **caller-supplied arguments** while granted to `authenticated`. A direct RPC could pass `estimate 0` (ceiling never binds, every concurrent enqueue passes) or claim a bedtime book on a free grant. | Fixed — both derived server-side from `p_length`; entitlement checked in SQL |
+| 1 | `refund_story_quota` refunded a **story** for a refundable failure of **any** job type. `page_regenerate` throws `regen_budget_exhausted` deterministically on a third regen, and that code is refundable — so asking for a third regen repeatedly minted stories, or top-ups at `stories_used = 0`. | Fixed — guarded on `type = 'story_generate'` |
+| 4 | `record_cost(p_final)` released a reservation the job never took. `character_build` and `page_regenerate` write an estimate without reserving, so settling one freed a **concurrent story's** reservation and the ceiling stopped binding. | Fixed — `generation_jobs.cost_reserved` flag, released at most once |
+| 9 | Clients could `UPDATE` any column of their own `parent_accounts` row, including `is_anonymous` — shedding the anonymous rate limit for free. | Fixed — trigger restricts client sessions to `locale` |
+
+**A fifth bug was introduced by the fix and caught by testing it.** With no
+`subscriptions` row, `SELECT ... INTO` sets `v_topup` to NULL rather than
+leaving the declared default, so `stories_used >= limit AND NULL <= 0` evaluated
+to NULL — the guard never fired and every free user could mint unlimited free
+stories. Fixed in `20260826130000`. The SQL reads correctly; only an adversarial
+test found it.
+
+### Still open (not fixed, ranked)
+
+| # | Finding | Why it matters |
+|---|---|---|
+| 7 | **`merge` leaves storage keys under the old uid prefix**, so bucket policies and `media-sign` refuse them. Merged stories render with no pictures and no narration after the user was promised "nothing was lost". | Violates §7. Until re-keying exists, `merge` should be refused rather than silently completing lossily. |
+| 6 | The usage period is **never renewed**. `apply_revenuecat_event` only inserts when no open row exists, so a renewal while the row is still open leaves `period_end` stale. One second later the subscriber falls back to the free never-ending row, whose `cost_cents_accrued` never resets — permanently ceiling-locked. | A paying customer silently stops being able to generate. |
+| 5 | `enqueue_revenuecat_event` is granted to `anon, authenticated`, and the reconciler's `confirmsTopup()` only checks a top-up was **ever** purchased, not that this transaction was ungranted. One €4.99 purchase replayed = unlimited top-ups. | Needs per-transaction-id grant tracking. |
+| 8 | Global daily spend cap sums rows client-side; PostgREST caps at 1000 rows silently, so past 1000 jobs/day the halt **stops existing**. | Needs a `sum()` RPC. |
+| 10 | At-least-once delivery with no "already finished" guard: a crash between settle and `queue.delete` regenerates every image and releases the reservation twice. | Needs `finished_at` short-circuit. |
+| 11 | `createCharacter` discards the client's idempotency key. A retried request creates duplicate characters and burns both budget and a character slot. | One-line fix. |
+
+Findings 5–8 and 10–11 should be closed before any real money or real
+generation runs. None of them are reachable while the app is on mocks.

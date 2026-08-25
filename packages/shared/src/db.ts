@@ -191,6 +191,7 @@ export type Database = {
           attempts: number
           character_id: string | null
           cost_cents: number
+          cost_reserved: boolean
           created_at: string
           error_code: Database["public"]["Enums"]["job_error_code"] | null
           estimated_cost_cents: number
@@ -212,6 +213,7 @@ export type Database = {
           attempts?: number
           character_id?: string | null
           cost_cents?: number
+          cost_reserved?: boolean
           created_at?: string
           error_code?: Database["public"]["Enums"]["job_error_code"] | null
           estimated_cost_cents?: number
@@ -233,6 +235,7 @@ export type Database = {
           attempts?: number
           character_id?: string | null
           cost_cents?: number
+          cost_reserved?: boolean
           created_at?: string
           error_code?: Database["public"]["Enums"]["job_error_code"] | null
           estimated_cost_cents?: number
@@ -997,12 +1000,10 @@ export type Database = {
         Args: {
           p_character_ids: string[]
           p_child_id: string
-          p_estimated_cost_cents: number
           p_idempotency_key: string
           p_length: Database["public"]["Enums"]["story_length"]
           p_model_bundle_version: string
           p_mood: Database["public"]["Enums"]["story_mood"]
-          p_pages_total: number
           p_render_technique: Database["public"]["Enums"]["render_technique"]
           p_theme: Database["public"]["Enums"]["story_theme"]
         }

@@ -4,7 +4,8 @@
 // THE quota gate (docs/AGENT_BRIEFS.md B2: "the thing that matters most").
 // Checks 1-3 (halt, rate limit, entitlement) run here in TS; checks 4-5
 // (story quota, measured cost ceiling) plus the atomic insert are entirely
-// inside claim_story_quota() (supabase/migrations/20260825182000_...). This
+// inside claim_story_quota() (supabase/migrations/20260826120000_...), which
+// also derives pages/cost from length and enqueues the pgmq message. This
 // file NEVER reimplements that arithmetic — it calls the RPC and maps its
 // jsonb result to ApiErrorCode / QuotaSnapshot.
 //
@@ -169,8 +170,6 @@ async function createStory(req: Request, supabase: SupabaseClient<Database>, use
     p_length: body.length,
     p_render_technique: 'cutout_rerender',
     p_model_bundle_version: MODEL_BUNDLE_VERSION,
-    p_pages_total: shape.pageCount,
-    p_estimated_cost_cents: shape.estimatedCostCents,
     p_idempotency_key: body.idempotencyKey,
   });
   if (claimError) {
