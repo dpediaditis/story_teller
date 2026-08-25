@@ -23,11 +23,10 @@ import type {
   ModerationSubjectType,
   ModerationVerdict,
   PromptSafeCharacter,
-  RecordModerationRequest,
   UntrustedText,
 } from '@papercub/shared';
 import { ModerationBlocked } from './errors';
-import type { CharacterRecord, WorkerDb } from './ports';
+import type { CharacterRecord, ModerationEventRecord, WorkerDb } from './ports';
 import { checkReadingLevel } from './reading-level';
 import type { ProviderUsage } from './providers/types';
 
@@ -68,7 +67,7 @@ async function record(
     actionTaken: ModerationAction;
   },
 ): Promise<void> {
-  const req: RecordModerationRequest = {
+  const req: ModerationEventRecord = {
     parentId: ctx.parentId,
     subjectType: args.subjectType,
     subjectId: args.subjectId,

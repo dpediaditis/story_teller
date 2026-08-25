@@ -10,6 +10,8 @@
  * The real implementation is src/db.ts. The test double is src/testing/fake-db.ts.
  */
 
+import type { z } from 'zod';
+import type { RecordModerationRequest as RecordModerationRequestSchema } from '@papercub/shared';
 import type {
   AgeBand,
   GenerationStage,
@@ -17,11 +19,16 @@ import type {
   JobProgressEvent,
   JobStatus,
   RecordCostRequest,
-  RecordModerationRequest,
   RenderTechnique,
   StoryPageStatus,
   StoryStatus,
 } from '@papercub/shared';
+
+/**
+ * contract.ts exports RecordModerationRequest as a zod schema but not as a TS
+ * type, so it is derived here once rather than at four call sites.
+ */
+export type ModerationEventRecord = z.infer<typeof RecordModerationRequestSchema>;
 
 /* ── Cost ─────────────────────────────────────────────────────────────── */
 
@@ -129,7 +136,7 @@ export interface WorkerDb {
   globalSpendTodayCents(): Promise<number>;
 
   /* Moderation. */
-  recordModeration(req: RecordModerationRequest): Promise<void>;
+  recordModeration(req: ModerationEventRecord): Promise<void>;
 
   /* Jobs + progress. */
   updateJob(jobId: string, patch: JobPatch): Promise<void>;

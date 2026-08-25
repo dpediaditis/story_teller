@@ -24,7 +24,6 @@ import type { JobPayload } from '@papercub/shared';
 import { CostLedger, isGlobalSpendHalted } from './cost';
 import { GenerationHalted, toJobFailure } from './errors';
 import type { Logger } from './logger';
-import type { WorkerDb } from './ports';
 import { ProgressReporter } from './progress';
 import type { PipelineDeps } from './pipeline/context';
 import { runCharacterBuild } from './pipeline/character';
@@ -91,9 +90,11 @@ export async function runJob(opts: RunJobOptions): Promise<JobOutcome> {
     // one release per job, and this is it on the success path.
     await ledger.settleSuccess();
 
+    // `stage` is deliberately not set here: every pipeline ends by entering
+    // the `done` stage itself, and re-writing it would emit a second `done`
+    // transition for a stage that only ran once.
     await db.updateJob(job.jobId, {
       status: 'succeeded',
-      stage: 'done',
       errorCode: null,
       finishedAt: new Date().toISOString(),
       latencyMs: Date.now() - startedMs,

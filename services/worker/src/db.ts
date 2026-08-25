@@ -16,7 +16,7 @@
 import { createClient } from '@supabase/supabase-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { STORAGE_BUCKETS, parseStorageKey } from '@papercub/shared';
-import type { Database, JobProgressEvent, RecordModerationRequest, StoryPageStatus, StoryStatus } from '@papercub/shared';
+import type { Database, JobProgressEvent, StoryPageStatus, StoryStatus } from '@papercub/shared';
 import type { WorkerConfig } from './config';
 import type {
   CharacterRecord,
@@ -25,6 +25,7 @@ import type {
   NarrationRow,
   QueueMessage,
   RecordCostArgs,
+  ModerationEventRecord,
   StoryPageRow,
   StoryRecord,
   WorkerDb,
@@ -56,9 +57,10 @@ function unwrap<T>(result: { data: T | null; error: { message: string } | null }
 }
 
 export function createWorkerDb(client: ServiceClient): WorkerDb {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the generated
-  // Database type does not describe the security-definer RPCs' return shapes,
-  // and typing every call site around that adds noise without adding safety.
+  // The generated Database type does not describe the security-definer RPCs'
+  // return shapes, and typing every call site around that adds noise without
+  // adding safety.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rpc = (name: string, args: Record<string, unknown>) => (client as any).rpc(name, args);
 
   return {
@@ -103,7 +105,7 @@ export function createWorkerDb(client: ServiceClient): WorkerDb {
       return (data ?? []).reduce((sum, row) => sum + (row.cost_cents ?? 0), 0);
     },
 
-    async recordModeration(req: RecordModerationRequest) {
+    async recordModeration(req: ModerationEventRecord) {
       const { error } = await client.from('moderation_events').insert({
         parent_id: req.parentId,
         subject_type: req.subjectType,
@@ -131,7 +133,7 @@ export function createWorkerDb(client: ServiceClient): WorkerDb {
       if (patch.latencyMs !== undefined) row.latency_ms = patch.latencyMs;
       if (Object.keys(row).length === 0) return;
 
-      const { error } = await client.from('generation_jobs').update(row).eq('id', jobId);
+      const { error } = await client.from('generation_jobs').update(row as never).eq('id', jobId);
       if (error) throw new Error(`generation_jobs update failed: ${error.message}`);
     },
 
@@ -160,8 +162,8 @@ export function createWorkerDb(client: ServiceClient): WorkerDb {
 
       if (error) throw new Error(`characters select failed: ${error.message}`);
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- embedded
-      // selects are not described by the generated Database type.
+      // Embedded selects are not described by the generated Database type.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return (data ?? []).map((row: any) => ({
         id: row.id,
         name: row.name,
@@ -170,6 +172,7 @@ export function createWorkerDb(client: ServiceClient): WorkerDb {
         palette: row.palette ?? [],
         featureAnchor: row.feature_anchor,
         cutoutStorageKey: row.original_drawings?.cutout_storage_key ?? '',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         referenceAssets: (row.character_assets ?? []).map((a: any) => ({
           id: a.id,
           storageKey: a.storage_key,
@@ -204,8 +207,11 @@ export function createWorkerDb(client: ServiceClient): WorkerDb {
         locale: 'en-GB',
         renderTechnique: row.render_technique,
         characterIds: (row.story_characters ?? [])
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           .sort((a: any, b: any) => a.order_index - b.order_index)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           .map((c: any) => c.character_id),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         pages: (row.story_pages ?? []).map((p: any) => ({
           index: p.index,
           text: p.text,
@@ -236,7 +242,7 @@ export function createWorkerDb(client: ServiceClient): WorkerDb {
       if (extra?.completedAt !== undefined) row.completed_at = extra.completedAt;
       if (extra?.coverAssetId !== undefined) row.cover_asset_id = extra.coverAssetId;
 
-      const { error } = await client.from('stories').update(row).eq('id', storyId);
+      const { error } = await client.from('stories').update(row as never).eq('id', storyId);
       if (error) throw new Error(`stories update failed: ${error.message}`);
     },
 

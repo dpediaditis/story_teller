@@ -199,3 +199,33 @@ Known follow-ups from B5:
   for supabase-js v2, but this needs a real-device smoke test.
 - Google sign-in reports `ProviderUnavailableError` until
   `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` is provisioned.
+
+## 14. Worker caveats that must be closed before any real generation
+
+C1 built the pipeline against fake providers. These are unverified and two of
+them feed the cost guarantee directly.
+
+| # | Issue | Risk |
+|---|---|---|
+| 1 | **Provider price table is placeholder**, back-derived from §2 rather than read off real pricing pages | The measured cost ceiling is only as honest as this table. §6 already makes a price change a repricing trigger — confirm before launch. |
+| 2 | **Gemini TTS returns PCM, not MP3.** The worker writes `.mp3` with an estimated `durationMs` | Narration will be malformed on first real run. Certain bug, not a maybe. |
+| 3 | Gemini response shapes (`usageMetadata`, image `inlineData`) assumed | Unpriced calls throw rather than record zero, so this fails loudly — good — but it fails. |
+| 4 | `pgmq` PostgREST exposure unverified (`pgmq_public` vs `pgmq`) | Worker may not be able to read the queue at all. |
+| 5 | Illustration dimensions hardcoded (1024×1280 cover, 1024×768 page) | Needs an image decoder dependency to do properly. |
+| 6 | `record_cost` takes only `(job, cents, final)` — per-call provider/model/token detail is logged, not stored | When cost/story drifts past the §6 alert there is no queryable breakdown. Needs a B1 table. |
+
+**Do not treat the §2 cost model as validated until items 1–3 are closed against
+real API responses.** The first real story generation is the moment those
+numbers stop being estimates.
+
+### The reservation-release invariant (do not "simplify" this)
+
+`record_cost(p_final => true)` and `refund_story_quota` both decrement the SAME
+`usage_records.cost_cents_reserved` by this job's estimate. Calling both does
+not merely double-release this job — it frees a *concurrent* job's reservation,
+and the per-account ceiling stops binding.
+
+So: refundable failures settle with `final: false` and let the refund release.
+Every other terminal path settles with `final: true`. `alreadyRefunded` releases
+nothing. There are tests over all 15 `JobErrorCode` values asserting exactly one
+release; if a change breaks them, the change is wrong.
