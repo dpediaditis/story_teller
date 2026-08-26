@@ -59,6 +59,54 @@ export const PRICE_TABLE: Record<string, PriceEntry> = {
   'gemini-2.5-flash-lite-image': { provider: 'google', image: { centsPerImage: 3.9 } },
   'gemini-2.5-flash-preview-tts': { provider: 'google', speech: { centsPerMChar: 1000 } },
 
+  /* ── Google, 3.x ──────────────────────────────────────────────────────
+   * Added after the first live run: the table held only 2.5-* entries, so
+   * every 3.x model threw UnknownModelPriceError before any provider call
+   * completed. The guard worked exactly as intended — it refused to record a
+   * zero — but the table had not kept up with the models actually configured.
+   *
+   * VERIFY THESE against Google's current pricing page before launch.
+   * DECISIONS.md §14 item 1 still stands: these are researched figures, not
+   * numbers read off an invoice, and §6 makes any change a repricing trigger.
+   */
+  'gemini-3.7-flash': {
+    provider: 'google',
+    text: { inputCentsPerMTok: 75, outputCentsPerMTok: 375 },
+  },
+  'gemini-3.6-flash': {
+    provider: 'google',
+    text: { inputCentsPerMTok: 75, outputCentsPerMTok: 375 },
+  },
+  'gemini-3.5-flash': {
+    provider: 'google',
+    text: { inputCentsPerMTok: 150, outputCentsPerMTok: 900 },
+  },
+  'gemini-3.5-flash-lite': {
+    provider: 'google',
+    text: { inputCentsPerMTok: 30, outputCentsPerMTok: 250 },
+  },
+  'gemini-3.1-flash-lite': {
+    provider: 'google',
+    text: { inputCentsPerMTok: 30, outputCentsPerMTok: 250 },
+  },
+  /** Premium tier, cover only. ~$0.067 per 1K image. */
+  'gemini-3.1-flash-image': { provider: 'google', image: { centsPerImage: 6.7 } },
+  /** Fast tier, interior pages — the cheap half of the split. ~$0.0336. */
+  'gemini-3.1-flash-lite-image': { provider: 'google', image: { centsPerImage: 3.36 } },
+  'gemini-3-pro-image': { provider: 'google', image: { centsPerImage: 13.4 } },
+
+  'gemini-3.1-flash': {
+    provider: 'google',
+    text: { inputCentsPerMTok: 75, outputCentsPerMTok: 375 },
+  },
+  'gemini-3.1-flash-tts-preview': {
+    provider: 'google',
+    speech: { centsPerMChar: 1000 },
+  },
+  'gemini-2.5-pro-preview-tts': {
+    provider: 'google',
+    speech: { centsPerMChar: 1000 },
+  },
   /* ── OpenAI (second provider, dark) ─────────────────────────────────── */
   'gpt-5-mini': { provider: 'openai', text: { inputCentsPerMTok: 25, outputCentsPerMTok: 200 } },
   'gpt-image-1': { provider: 'openai', image: { centsPerImage: 4.0 } },

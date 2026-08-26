@@ -319,3 +319,48 @@ capacity recovers; that single number validates or breaks the pricing model.
 - The queue consumer talks to Postgres over PostgREST. A direct connection would
   remove the schema-exposure dependency, the per-poll HTTP round-trip, and allow
   LISTEN-based wakeups. Worth doing before deploy.
+
+## 17. Live run — unresolved: the pipeline stalls at `moderating_input`
+
+Eight attempts. Everything up to the first pipeline stage works against live
+infrastructure; the job then sits at `moderating_input` for ~100s and fails with
+`provider_timeout` ("This operation was aborted"), having made no provider call.
+
+### Fixed along the way (all committed)
+
+- `emitProgress` created a Realtime channel it never subscribed to, then awaited
+  `removeChannel()` — a teardown that never resolves for a channel that never
+  connected. Now bounded to 2s and non-fatal. **This one would have stalled
+  every job in production**, and its symptom was a misleading `provider_timeout`.
+- `PRICE_TABLE` held only `gemini-2.5-*` entries, so every 3.x model threw
+  `UnknownModelPriceError` before any work. Added 11 entries. The guard behaved
+  correctly — it refuses to record a zero rather than corrupt the ceiling.
+- Transient 429/5xx now retried with jittered backoff (6 attempts, ~62s).
+- Model ids corrected against what the key actually exposes.
+
+### Still failing
+
+After those fixes the stall persists, and instrumentation has not localised it:
+`console.error` is block-buffered when stderr is redirected and was lost on
+SIGTERM; a rewrite to `appendFileSync` also produced no output, which suggests
+the patched code paths are not the ones executing.
+
+**Next step is to read the code, not to test it.** Specifically: what runs
+between `runner` setting `stage = 'moderating_input'` and `gateInputImage`
+making its first call — and whether anything there awaits a promise that can
+never settle (a second Realtime/channel use, a `for await`, or an unresolved
+`await` on a Supabase client created with a stale connection).
+
+### Measured cost per story remains UNKNOWN
+
+§11's economics — €7.99, 5 stories, the $3.85 ceiling — are still arithmetic.
+
+### What the run did prove
+
+- 27 migrations, 18 tables, 18 with RLS, on a real instance.
+- Storage upload; queue read via `public.queue_*` wrappers.
+- `claim_story_quota` end to end: ownership, entitlement, derived cost,
+  reservation, enqueue — atomic.
+- Gate 1 ran and wrote 17 `moderation_events` on the one run that got furthest.
+- **The refund path, nine times, across four distinct error codes.** Every
+  failure returned `usage_records` to `used=0, accrued=0c, RESERVED=0c`.

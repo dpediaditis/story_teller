@@ -138,15 +138,37 @@ export function createWorkerDb(client: ServiceClient): WorkerDb {
     },
 
     async emitProgress(event: JobProgressEvent) {
-      // Realtime channel `job:{jobId}`, per docs/ARCHITECTURE.md. The client
-      // also polls GET jobs/:id every 2s, so a dropped broadcast degrades to
-      // slightly staler progress rather than a stuck screen — which is why a
-      // send failure is not allowed to fail the job.
-      const channel = client.channel(`job:${event.jobId}`);
+      // Progress is ADVISORY. The client polls GET jobs/:id every 2s
+      // (SLO.jobPollIntervalMs), so a dropped broadcast costs slightly staler
+      // progress and nothing else.
+      //
+      // It must therefore never be able to block the pipeline — and it could.
+      // The channel is created but never subscribed, so supabase-js falls back
+      // to REST for send(), and removeChannel() then awaits a socket teardown
+      // that never resolves for a channel that never connected. Observed live:
+      // every job sat at `moderating_input` with no provider call ever made,
+      // until the job timeout fired ~100s later and reported a misleading
+      // "provider_timeout".
+      //
+      // Both calls are now bounded, and a failure here is swallowed by design.
+      const PROGRESS_EMIT_TIMEOUT_MS = 2_000;
+      const bounded = <T>(work: Promise<T>): Promise<T | undefined> =>
+        Promise.race([
+          work,
+          new Promise<undefined>((resolve) =>
+            setTimeout(() => resolve(undefined), PROGRESS_EMIT_TIMEOUT_MS),
+          ),
+        ]);
+
       try {
-        await channel.send({ type: 'broadcast', event: 'progress', payload: event });
-      } finally {
-        await client.removeChannel(channel);
+        const channel = client.channel(`job:${event.jobId}`);
+        await bounded(
+          channel.send({ type: 'broadcast', event: 'progress', payload: event }),
+        );
+        // Not awaited: teardown is housekeeping, and the pipeline owes it nothing.
+        void bounded(client.removeChannel(channel)).catch(() => undefined);
+      } catch {
+        // Deliberately ignored — see above.
       }
     },
 

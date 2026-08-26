@@ -44,8 +44,8 @@ const EnvSchema = z.object({
    * DECISIONS.md §2 prices a story as ONE premium cover plus N fast interior
    * pages. Changing either of these changes the cost table.
    */
-  GEMINI_TEXT_MODEL: z.string().default('gemini-3.7-flash'),
-  GEMINI_VISION_MODEL: z.string().default('gemini-3.7-flash'),
+  GEMINI_TEXT_MODEL: z.string().default('gemini-3.5-flash'),
+  GEMINI_VISION_MODEL: z.string().default('gemini-3.1-flash-lite'),
   GEMINI_IMAGE_MODEL_PREMIUM: z.string().default('gemini-3.1-flash-image'),
   GEMINI_IMAGE_MODEL_FAST: z.string().default('gemini-3.1-flash-lite-image'),
   GEMINI_TTS_MODEL: z.string().default('gemini-2.5-flash-preview-tts'),
