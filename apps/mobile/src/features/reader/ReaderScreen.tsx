@@ -17,7 +17,8 @@ import { colour, inkAlpha, radius, spacing } from '../../theme';
  *
  * Narration playback itself is mocked (a running clock, no real audio
  * decode) — there's no real audio asset behind the mock's storageKey yet;
- * wiring `expo-av` to a real file is a one-line swap once B2 exists.
+ * wiring `expo-audio` (useAudioPlayer) to a real file is the remaining step
+ * once the worker produces narration.
  */
 export function ReaderScreen({ storyId }: { storyId: string }) {
   const [story, setStory] = useState<StoryDetailDto | null>(null);
