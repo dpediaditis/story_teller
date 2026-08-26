@@ -607,11 +607,19 @@ anything authenticated, for two reasons that are both configuration:
    `422 anonymous_provider_disabled`. §12 makes anonymous the first-launch path
    and §7 makes it the base of the whole auth model, so this is not optional.
    One dashboard toggle.
-2. **None of the eleven Edge Functions are deployed** — every one 404s. They
-   pass `deno check`, but the project has only ever been exercised through
-   `psql` and the worker, so nothing ever needed them. Not deployed here:
-   pushing code to a live internet-reachable endpoint is outward-facing and was
-   not part of the request.
+2. **None of the eleven Edge Functions were deployed** — every one 404'd. They
+   pass `deno check`, but the project had only ever been exercised through
+   `psql` and the worker, so nothing had needed them. **Now deployed and
+   answering**, with the correct envelope and `copyKey` on the error path.
+
+   The deploy does not work with the documented command. `supabase functions
+   deploy` fails to resolve `@papercub/shared`, because the import map points
+   outside `supabase/functions`; passing `--import-map supabase/functions/deno.json`
+   fixes it, even though the CLI announces that the flag is no longer supported.
+   Recorded in STATUS.md — it is not discoverable from the error message.
+
+Only the anonymous toggle remains, and it is the user's to make: enabling an
+auth provider is a project security setting, not a deploy.
 
 Worth recording because both were invisible from the code: the migrations, the
 worker and the queue all work against this project, so "the backend is proven"

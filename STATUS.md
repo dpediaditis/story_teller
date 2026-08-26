@@ -106,21 +106,24 @@ is no flag to flip.
 The app boots and renders against the live build — onboarding, navigation and
 the whole shell are confirmed working on the iOS 26 simulator.
 
-**Two blockers stop the end-to-end drive, and NEITHER is code:**
+**All eleven Edge Functions are now deployed** and answering on the live
+project — 401 unauthenticated, 422 on an unsupported method, both in the correct
+`ApiResponse` envelope with a `copyKey`. They had never been pushed before; every
+one 404'd. `revenuecat-webhook` is deployed with `--no-verify-jwt` because it
+authenticates by its own header secret, not a Supabase JWT.
 
-1. **Anonymous sign-ins are disabled on the Supabase project.**
-   `POST /auth/v1/signup` returns
-   `422 anonymous_provider_disabled`. DECISIONS.md §12 makes anonymous the
-   first-launch path, so nothing authenticated can happen until this is on:
-   Dashboard -> Authentication -> Sign In / Providers -> **Anonymous Sign-Ins**.
-2. **No Edge Functions are deployed.** All eleven return 404 on the live
-   project — `session`, `characters`, `stories`, `jobs`, `media-sign`. They pass
-   `deno check` locally but have never been pushed:
-   ```
-   npx supabase functions deploy --project-ref <ref>
-   ```
-   Not done here: deploying to a live project is outward-facing and was not
-   asked for.
+**ONE blocker remains, and it is not code: anonymous sign-ins are disabled on
+the project.** `POST /auth/v1/signup` returns `422 anonymous_provider_disabled`.
+DECISIONS.md §12 makes anonymous the first-launch path and §7 builds the whole
+auth model on it, so nothing authenticated can happen until this is switched on:
+
+> Dashboard -> Authentication -> Sign In / Providers -> **Anonymous Sign-Ins**
+
+Not done here: it is a project auth setting, not a deploy.
+
+`revenuecat-webhook` currently 500s because `REVENUECAT_WEBHOOK_SECRET` is not
+set as a function secret. Expected — RevenueCat is Step 3 in `.env` and is not
+configured yet.
 
 **Also fixed while getting there:** the prebuilt Debug app in DerivedData
 carried NO entitlements, so `expo-secure-store` failed with "A required
@@ -129,6 +132,29 @@ entitlement isn't present" and no session could be stored. Rebuilding with
 `apps/mobile/ios/build`. Re-signing an existing bundle ad-hoc does NOT work —
 the simulator then refuses to launch it. Do NOT "fix" the Keychain failure by
 moving the session to AsyncStorage (`src/lib/supabase.ts` explains why).
+
+## Deploying Edge Functions — CLI gotcha
+
+`supabase functions deploy <name> --project-ref <ref>` fails with:
+
+```
+Error: failed to create the graph
+Module not found ".../packages/shared/src/index.ts"
+```
+
+even though the file is there and `deno check` passes. Adding
+`--import-map supabase/functions/deno.json` makes it work — the CLI prints
+"Specifying import_map through flags is no longer supported" and then bundles
+correctly anyway. The bare specifier `@papercub/shared` maps to a path OUTSIDE
+`supabase/functions`, which is what the default resolution cannot follow.
+
+```
+npx supabase functions deploy <name> --project-ref <ref> \
+  --import-map supabase/functions/deno.json
+```
+
+Bundled script size is ~1.1 MB per function — the whole shared package goes into
+each one.
 
 ## Running the worker — read this first
 
