@@ -51,7 +51,7 @@ export async function runNarrationGenerate(args: NarrationRunArgs): Promise<void
     ownerUid: job.parentId,
     scope: job.storyId,
     id: `narration-${job.language}`,
-    ext: 'mp3',
+    ext: speech.value.mimeType === 'audio/wav' ? 'wav' : 'mp3',
   });
   await db.uploadObject(key, speech.value.audioBytes, 'audio/mpeg');
 

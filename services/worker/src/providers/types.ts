@@ -66,7 +66,7 @@ export interface SpeechSynthesizer {
     text: string;
     voiceId: string;
     language: string;
-  }): Promise<WithUsage<{ audioBytes: Uint8Array; durationMs: number }>>;
+  }): Promise<WithUsage<{ audioBytes: Uint8Array; durationMs: number; mimeType: string }>>;
 }
 
 export interface ProviderBundle {

@@ -281,7 +281,7 @@ export function createFakeProviders(opts: FakeProviderOptions = {}): FakeProvide
     async synthesise() {
       calls.push({ kind: 'speech' });
       return {
-        value: { audioBytes: new Uint8Array([7, 7]), durationMs: 30_000 },
+        value: { audioBytes: new Uint8Array([7, 7]), durationMs: 30_000, mimeType: 'audio/wav' },
         usage: usage(opts.speechCostCents ?? 0.5, 'fake-tts'),
       };
     },

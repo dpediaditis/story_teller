@@ -153,22 +153,52 @@ export function createGeminiProviders(opts: GeminiOptions): {
   const doFetch = opts.fetchImpl ?? fetch;
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
+  /**
+   * 503 UNAVAILABLE ("this model is currently experiencing high demand") and 429
+   * are transient by Google's own description. Treating them as terminal means a
+   * brief capacity spike costs a parent their story: they tap Create, wait, and
+   * get nothing. Observed live — three consecutive stories lost to a spike that
+   * cleared within minutes.
+   *
+   * Retries are bounded and only on transient statuses. A 400 or 404 is a real
+   * bug and must still fail immediately rather than being retried four times.
+   */
+  const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
+  // Observed live: Gemini's multimodal capacity degraded for ~15 minutes while
+  // text-only calls kept succeeding. Four attempts over ~7s was nowhere near
+  // enough. 6 attempts with 2/4/8/16/32s backoff rides out ~62s, which is worth
+  // it — the alternative is telling a parent their story failed.
+  const MAX_HTTP_ATTEMPTS = 6;
+
   async function post(model: string, method: string, body: unknown): Promise<unknown> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const res = await doFetch(`${baseUrl}/models/${model}:${method}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-goog-api-key': opts.apiKey },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-      const text = await res.text();
-      if (!res.ok) throw new GeminiError(res.status, text);
-      return JSON.parse(text);
-    } finally {
-      clearTimeout(timer);
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= MAX_HTTP_ATTEMPTS; attempt += 1) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const res = await doFetch(`${baseUrl}/models/${model}:${method}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-goog-api-key': opts.apiKey },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+        const text = await res.text();
+        if (res.ok) return JSON.parse(text);
+
+        const error = new GeminiError(res.status, text);
+        if (!RETRYABLE_STATUSES.has(res.status) || attempt === MAX_HTTP_ATTEMPTS) throw error;
+        lastError = error;
+      } finally {
+        clearTimeout(timer);
+      }
+
+      // 1s, 2s, 4s, with jitter so concurrent workers do not retry in lockstep.
+      const backoffMs = 2 ** attempt * 1000 + Math.floor(Math.random() * 500);
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
     }
+
+    throw lastError;
   }
 
   /**
@@ -313,6 +343,45 @@ export function createGeminiProviders(opts: GeminiOptions): {
     },
   };
 
+
+/**
+ * Gemini TTS returns HEADERLESS 16-bit little-endian PCM
+ * (audio/L16;codec=pcm;rate=24000), not a container format. Writing those bytes
+ * to a .mp3 produces a file no player will open — confirmed against the live
+ * API, and previously shipped as exactly that bug.
+ *
+ * A 44-byte RIFF header makes it playable everywhere with no encoder
+ * dependency. The cost is size: 24kHz/16-bit mono is ~2.9 MB per minute, so a
+ * 3-minute story is ~8.6 MB against the ~1.4 MB the storage model assumed.
+ * Converting to AAC needs ffmpeg in the worker image — tracked in DECISIONS.md.
+ */
+const PCM_SAMPLE_RATE = 24_000;
+const PCM_CHANNELS = 1;
+const PCM_BYTES_PER_SAMPLE = 2;
+
+function pcmToWav(pcm: Uint8Array, sampleRate = PCM_SAMPLE_RATE): Uint8Array {
+  const byteRate = sampleRate * PCM_CHANNELS * PCM_BYTES_PER_SAMPLE;
+  const out = new Uint8Array(44 + pcm.byteLength);
+  const view = new DataView(out.buffer);
+  const tag = (off: number, s: string) => {
+    for (let i = 0; i < s.length; i += 1) out[off + i] = s.charCodeAt(i);
+  };
+  tag(0, 'RIFF');
+  view.setUint32(4, 36 + pcm.byteLength, true);
+  tag(8, 'WAVEfmt ');
+  view.setUint32(16, 16, true);            // PCM fmt chunk size
+  view.setUint16(20, 1, true);             // format = PCM
+  view.setUint16(22, PCM_CHANNELS, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, PCM_CHANNELS * PCM_BYTES_PER_SAMPLE, true);
+  view.setUint16(34, PCM_BYTES_PER_SAMPLE * 8, true);
+  tag(36, 'data');
+  view.setUint32(40, pcm.byteLength, true);
+  out.set(pcm, 44);
+  return out;
+}
+
   const speech: SpeechSynthesizer = {
     async synthesise({ text: toSpeak, voiceId }) {
       const startedMs = Date.now();
@@ -327,7 +396,8 @@ export function createGeminiProviders(opts: GeminiOptions): {
         },
       });
 
-      const audioBytes = firstInlineImage(response);
+      const pcm = firstInlineImage(response);
+      const audioBytes = pcmToWav(pcm);
 
       // Speech is billed per character of input.
       const usage: ProviderUsage = {
@@ -340,11 +410,14 @@ export function createGeminiProviders(opts: GeminiOptions): {
         provider: providerOf(opts.ttsModel),
       };
 
-      // Duration is not reported by the API. Estimated from a typical narration
-      // rate — it drives a progress bar, never money.
-      const durationMs = Math.round((toSpeak.length / 14) * 1000);
+      // PCM duration is exact: bytes / (rate * channels * bytesPerSample).
+      // The previous estimate from text length drifts, which would desync the
+      // reader's sentence highlighting from the audio.
+      const durationMs = Math.round(
+        (pcm.byteLength / (PCM_SAMPLE_RATE * PCM_CHANNELS * PCM_BYTES_PER_SAMPLE)) * 1000,
+      );
 
-      return { value: { audioBytes, durationMs }, usage };
+      return { value: { audioBytes, durationMs, mimeType: 'audio/wav' }, usage };
     },
   };
 

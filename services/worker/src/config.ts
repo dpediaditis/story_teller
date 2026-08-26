@@ -9,19 +9,27 @@
 
 import { z } from 'zod';
 
+/**
+ * A .env writes an unset key as `KEY=`, which arrives as ''. zod's `.optional()`
+ * accepts *absent*, not *empty*, so the worker refused to boot whenever an
+ * optional provider key was left blank — the normal state for OPENAI_API_KEY
+ * and REVENUECAT_SECRET_API_KEY.
+ */
+const emptyAsUndefined = (v: unknown) => (typeof v === 'string' && v.trim() === '' ? undefined : v);
+
 const EnvSchema = z.object({
   EXPO_PUBLIC_SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
 
   GEMINI_API_KEY: z.string().min(1),
-  OPENAI_API_KEY: z.string().min(1).optional(),
+  OPENAI_API_KEY: z.preprocess(emptyAsUndefined, z.string().min(1).optional()),
 
   /**
    * RevenueCat REST v1 secret key. The reconciler re-fetches subscriber state
    * with this rather than trusting the stored webhook payload
    * (20260826090000_entitlement_inbox_and_merge_grants.sql).
    */
-  REVENUECAT_SECRET_API_KEY: z.string().min(1).optional(),
+  REVENUECAT_SECRET_API_KEY: z.preprocess(emptyAsUndefined, z.string().min(1).optional()),
   REVENUECAT_API_BASE_URL: z.string().url().default('https://api.revenuecat.com'),
 
   WORKER_ENV: z.enum(['development', 'staging', 'production']).default('development'),
@@ -36,10 +44,10 @@ const EnvSchema = z.object({
    * DECISIONS.md §2 prices a story as ONE premium cover plus N fast interior
    * pages. Changing either of these changes the cost table.
    */
-  GEMINI_TEXT_MODEL: z.string().default('gemini-2.5-flash'),
-  GEMINI_VISION_MODEL: z.string().default('gemini-2.5-flash'),
-  GEMINI_IMAGE_MODEL_PREMIUM: z.string().default('gemini-2.5-flash-image'),
-  GEMINI_IMAGE_MODEL_FAST: z.string().default('gemini-2.5-flash-lite-image'),
+  GEMINI_TEXT_MODEL: z.string().default('gemini-3.7-flash'),
+  GEMINI_VISION_MODEL: z.string().default('gemini-3.7-flash'),
+  GEMINI_IMAGE_MODEL_PREMIUM: z.string().default('gemini-3.1-flash-image'),
+  GEMINI_IMAGE_MODEL_FAST: z.string().default('gemini-3.1-flash-lite-image'),
   GEMINI_TTS_MODEL: z.string().default('gemini-2.5-flash-preview-tts'),
 
   /** Second provider, implemented but DARK. Never selected unless set true. */

@@ -401,22 +401,57 @@ export function createWorkerQueue(
 ): WorkerQueue {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const anyClient = client as any;
-  let schema: 'pgmq_public' | 'pgmq' | null = null;
+
+  /**
+   * Three ways a Supabase project can expose pgmq, in preference order:
+   *
+   *   'public'       queue_read/queue_send/... wrappers (migration
+   *                  20260826180000). Needs NO dashboard configuration, so this
+   *                  is tried first — a stock project exposes only `public` and
+   *                  `graphql_public`, which is why the other two failed.
+   *   'pgmq_public'  Supabase's Queues integration, if enabled.
+   *   'pgmq'         projects that added pgmq to Exposed schemas directly.
+   *
+   * The public wrappers use different function names AND argument labels, so
+   * the call is translated rather than just re-pointed at another schema.
+   */
+  type QueueFlavour = 'public' | 'pgmq_public' | 'pgmq';
+  let flavour: QueueFlavour | null = null;
+
+  const PUBLIC_QUEUE_FN: Record<string, string> = {
+    read: 'queue_read',
+    send: 'queue_send',
+    delete: 'queue_delete',
+    archive: 'queue_archive',
+  };
+
+  function toPublicArgs(fn: string, a: Record<string, unknown>): Record<string, unknown> {
+    if (fn === 'read') {
+      return { queue_name: a.queue_name, visibility_seconds: a.sleep_seconds, batch_size: a.n };
+    }
+    if (fn === 'send') {
+      return { queue_name: a.queue_name, message: a.message, delay_seconds: 0 };
+    }
+    return { queue_name: a.queue_name, message_id: a.message_id };
+  }
 
   async function call(fn: string, args: Record<string, unknown>) {
-    const schemas: ('pgmq_public' | 'pgmq')[] = schema ? [schema] : ['pgmq_public', 'pgmq'];
+    const order: QueueFlavour[] = flavour ? [flavour] : ['public', 'pgmq_public', 'pgmq'];
     let lastError: unknown = null;
 
-    for (const candidate of schemas) {
-      const { data, error } = await anyClient.schema(candidate).rpc(fn, args);
+    for (const candidate of order) {
+      const name = candidate === 'public' ? (PUBLIC_QUEUE_FN[fn] ?? fn) : fn;
+      const payload = candidate === 'public' ? toPublicArgs(fn, args) : args;
+      const q = candidate === 'public' ? anyClient : anyClient.schema(candidate);
+      const { data, error } = await q.rpc(name, payload);
       if (!error) {
-        schema = candidate;
+        flavour = candidate;
         return data;
       }
       lastError = error;
     }
     throw new Error(
-      `pgmq.${fn} failed (tried ${schemas.join(', ')}): ` +
+      `queue.${fn} failed (tried public, pgmq_public, pgmq): ` +
         (lastError && typeof lastError === 'object' && 'message' in lastError
           ? String((lastError as { message: unknown }).message)
           : String(lastError)),

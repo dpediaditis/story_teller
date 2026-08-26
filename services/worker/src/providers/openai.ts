@@ -269,7 +269,14 @@ export function createOpenAiProviders(opts: OpenAiOptions): {
         provider: providerOf(opts.ttsModel),
       };
 
-      return { value: { audioBytes, durationMs: Math.round((toSpeak.length / 14) * 1000) }, usage };
+      return {
+        value: {
+          audioBytes,
+          durationMs: Math.round((toSpeak.length / 14) * 1000),
+          mimeType: 'audio/mpeg',
+        },
+        usage,
+      };
     },
   };
 

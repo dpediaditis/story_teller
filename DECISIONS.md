@@ -263,3 +263,59 @@ test found it.
 
 Findings 5–8 and 10–11 should be closed before any real money or real
 generation runs. None of them are reachable while the app is on mocks.
+
+## 16. First live run — what it proved, and what it broke
+
+Ran the full pipeline against the real Supabase project and Gemini on 26 Aug 2026.
+
+### Verified working against live infrastructure
+
+- 27 migrations applied; **18 tables, 18 with RLS** — full coverage confirmed on
+  a real instance, not just local Docker.
+- Storage upload, pgmq queues, all 9 security-definer functions.
+- `claim_story_quota` end to end: ownership checks, entitlement (free tier is
+  short-only), derived page count and cost, reservation, enqueue — all atomic.
+- **The refund path, four separate times.** Every failed job returned
+  `usage_records` to `used=0, accrued=0c, RESERVED=0c`. The exactly-once
+  reservation release — the most expensive possible bug — holds in production.
+
+### Bugs found that would each have hit first deploy
+
+1. **Worker refused to boot on empty optional env vars.** `z.string().min(1).optional()`
+   rejects `''`, and every `.env` writes an unset key as `KEY=`. Fixed with a
+   preprocess that treats empty as absent.
+2. **`gemini-2.5-flash-lite-image` does not exist.** The scaffold's model
+   defaults were guesses. The real fast tier is `gemini-3.1-flash-lite-image`,
+   which preserves the cheap-interior/premium-cover split the economics rely on.
+   Text moved to `gemini-3.7-flash`.
+3. **pgmq was unreachable over PostgREST.** Supabase exposes only `public` and
+   `graphql_public`; the worker probed `pgmq_public` and `pgmq` and found
+   neither. Fixed with `public.queue_*` wrappers (migration 20260826180000) so
+   no dashboard configuration is needed. Worker prefers `public` now.
+4. **Gemini TTS returns PCM, not MP3** — confirmed as
+   `audio/L16;codec=pcm;rate=24000`. The worker wrote those bytes as `.mp3`.
+   Now wrapped in a WAV header, with duration computed exactly from byte count
+   rather than estimated from text length (which would desync the reader's
+   sentence highlighting).
+5. **Transient 503s failed whole stories.** Gemini returns
+   `503 UNAVAILABLE — high demand` under load. These are now retried with
+   jittered backoff (6 attempts, ~62s).
+
+### Still not measured
+
+**Cost per story.** Gemini's multimodal capacity was degraded throughout —
+text-only calls succeeded while every image call returned 503 or timed out, so
+no story completed. §11's economics remain arithmetic. Re-run `./go.sh` when
+capacity recovers; that single number validates or breaks the pricing model.
+
+### New open items
+
+- A 503 maps to `errorCode: 'internal'`. It should be `provider_rate_limited` —
+  same refund behaviour, but a Google capacity blip is currently
+  indistinguishable from a bug in our own code in the failure metrics.
+- **The worker logs raw binary** (image or audio bytes reach the log stream).
+  In production that means bloated logs and potentially children's drawings
+  written to log storage, which cuts against §10.
+- The queue consumer talks to Postgres over PostgREST. A direct connection would
+  remove the schema-exposure dependency, the per-poll HTTP round-trip, and allow
+  LISTEN-based wakeups. Worth doing before deploy.
