@@ -221,21 +221,26 @@ export async function runStoryGenerate(args: StoryRunArgs): Promise<void> {
     }),
   );
 
+  // Extension, content type and dimensions all come from the bytes the model
+  // returned. Measured live: Gemini answers with JPEG at 928x1152, so the
+  // previous hardcoded png/1024x1280 was wrong on all three counts and the
+  // reader lays out from these columns.
+  const coverMeta = cover.value.meta;
   const coverKey = buildStorageKey({
     bucket: 'illustrations',
     ownerUid: job.parentId,
     scope: job.storyId,
     id: 'cover',
-    ext: 'png',
+    ext: coverMeta.ext,
   });
-  await db.uploadObject(coverKey, cover.value.imageBytes, 'image/png');
+  await db.uploadObject(coverKey, cover.value.imageBytes, coverMeta.mimeType);
 
   const coverId = await db.insertIllustration({
     storyId: job.storyId,
     pageIndex: 0,
     storageKey: coverKey,
-    width: 1024,
-    height: 1280,
+    width: coverMeta.width,
+    height: coverMeta.height,
     modelId: cover.usage.modelId,
     seed: cover.value.seed,
     referenceAssetIds,
@@ -285,21 +290,22 @@ export async function runStoryGenerate(args: StoryRunArgs): Promise<void> {
       }),
     );
 
+    const pageMeta = illustration.value.meta;
     const pageKey = buildStorageKey({
       bucket: 'illustrations',
       ownerUid: job.parentId,
       scope: job.storyId,
       id: `page-${page.index}`,
-      ext: 'png',
+      ext: pageMeta.ext,
     });
-    await db.uploadObject(pageKey, illustration.value.imageBytes, 'image/png');
+    await db.uploadObject(pageKey, illustration.value.imageBytes, pageMeta.mimeType);
 
     const illustrationId = await db.insertIllustration({
       storyId: job.storyId,
       pageIndex: page.index,
       storageKey: pageKey,
-      width: 1024,
-      height: 768,
+      width: pageMeta.width,
+      height: pageMeta.height,
       modelId: illustration.usage.modelId,
       seed: illustration.value.seed,
       referenceAssetIds,
@@ -343,7 +349,11 @@ export async function runStoryGenerate(args: StoryRunArgs): Promise<void> {
     id: 'narration',
     ext: speech.value.mimeType === 'audio/wav' ? 'wav' : 'mp3',
   });
-  await db.uploadObject(narrationKey, speech.value.audioBytes, 'audio/mpeg');
+  // The synthesiser reports what it actually returned; Gemini's is WAV, not
+  // MP3. Hardcoding 'audio/mpeg' stamped the object with a content type its own
+  // bytes contradict, and the reader fetches this over a signed URL where the
+  // stored content type is what the player is handed.
+  await db.uploadObject(narrationKey, speech.value.audioBytes, speech.value.mimeType);
 
   await db.insertNarration({
     storyId: job.storyId,

@@ -19,9 +19,9 @@ export default function RootLayout() {
       <SafeAreaProvider>
         {/* Anonymous sign-in at first launch lives here (DECISIONS.md §12) —
             AuthProvider bootstraps it before anything else mounts, with no
-            screen of its own. It wraps SessionProvider, not the reverse:
-            B3's mock session already renders fine with no auth state at all,
-            so ordering only matters for B5's own (auth) screens below. */}
+            screen of its own. It MUST wrap SessionProvider: the session is now
+            the live one (DECISIONS.md §13 resolved), and calling the `session`
+            Edge Function before an anonymous JWT exists returns 401. */}
         <AuthProvider>
           <SessionProvider>
             <Stack

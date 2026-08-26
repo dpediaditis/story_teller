@@ -101,21 +101,23 @@ export async function runPageRegenerate(args: PageRegenerateRunArgs): Promise<vo
 
   const regenCount = await db.incrementPageRegenCount(job.storyId, job.pageIndex);
 
+  // See story.ts: format and dimensions are read off the returned bytes.
+  const meta = illustration.value.meta;
   const key = buildStorageKey({
     bucket: 'illustrations',
     ownerUid: job.parentId,
     scope: job.storyId,
     id: `page-${job.pageIndex}-v${regenCount}`,
-    ext: 'png',
+    ext: meta.ext,
   });
-  await db.uploadObject(key, illustration.value.imageBytes, 'image/png');
+  await db.uploadObject(key, illustration.value.imageBytes, meta.mimeType);
 
   const illustrationId = await db.replaceIllustration({
     storyId: job.storyId,
     pageIndex: job.pageIndex,
     storageKey: key,
-    width: 1024,
-    height: 768,
+    width: meta.width,
+    height: meta.height,
     modelId: illustration.usage.modelId,
     seed: illustration.value.seed,
     referenceAssetIds,

@@ -19,6 +19,7 @@
  * the whole job no matter how many calls it took.
  */
 
+import type { ImageMeta } from './image-meta';
 import type {
   DrawingAnalysis,
   GeneratedStory,
@@ -58,7 +59,12 @@ export interface ImageGenerator {
     input: IllustrationPromptInput;
     referenceImages: Uint8Array[];
     tier: 'premium' | 'fast';
-  }): Promise<WithUsage<{ imageBytes: Uint8Array; seed: number | null }>>;
+    /**
+     * `meta` is read off the returned bytes, never asserted. The adapter knows
+     * what it got back; the pipeline must not have to assume PNG at a fixed
+     * size. Symmetrical with SpeechSynthesizer reporting its own mimeType.
+     */
+  }): Promise<WithUsage<{ imageBytes: Uint8Array; seed: number | null; meta: ImageMeta }>>;
 }
 
 export interface SpeechSynthesizer {

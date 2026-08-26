@@ -17,6 +17,8 @@
 
 import { buildIllustrationPrompt, buildStoryPrompt } from '../pipeline/prompt-builder';
 import type { DrawingAnalysis, GeneratedStory } from '@papercub/shared';
+import { normaliseDrawingAnalysis } from './drawing-analysis';
+import { describeImage } from './image-meta';
 import { imageCostCents, providerOf, speechCostCents, textCostCents } from './pricing';
 import type {
   ImageGenerator,
@@ -287,7 +289,15 @@ export function createGeminiProviders(opts: GeminiOptions): {
                   "Describe this child's drawing so it can be redrawn consistently " +
                   'later. Report only what is visibly in the image. Do not guess ' +
                   'at who drew it, do not describe any person, and do not read or ' +
-                  'transcribe any text in the image.',
+                  'transcribe any text in the image.\n\n' +
+                  // Asking for the shape is free and cheaper than repairing it.
+                  // It is NOT relied on: measured live, the model answers
+                  // "dark grey" and returns four traits regardless, which is
+                  // what normaliseDrawingAnalysis is for.
+                  'Give dominantColours as at most 6 hex codes in #rrggbb form, ' +
+                  'never colour names. Give at most 3 suggestedTraits, each one ' +
+                  'or two words. Give at most 6 distinguishingFeatures, each ' +
+                  'under 60 characters. Keep subjectGuess under 50 characters.',
               },
               { inlineData: { mimeType: 'image/png', data: bytesToBase64(cutoutImageBytes) } },
             ],
@@ -301,7 +311,9 @@ export function createGeminiProviders(opts: GeminiOptions): {
       });
 
       return {
-        value: firstJsonPart(response) as DrawingAnalysis,
+        // Normalised, not cast. The cast that used to be here is why
+        // character_build had never once succeeded — see ./drawing-analysis.ts.
+        value: normaliseDrawingAnalysis(firstJsonPart(response)),
         usage: tokenUsage(response, opts.visionModel, startedMs),
       };
     },
@@ -339,7 +351,7 @@ export function createGeminiProviders(opts: GeminiOptions): {
         provider: providerOf(modelId),
       };
 
-      return { value: { imageBytes, seed: input.seed }, usage };
+      return { value: { imageBytes, seed: input.seed, meta: describeImage(imageBytes) }, usage };
     },
   };
 
@@ -382,6 +394,40 @@ function pcmToWav(pcm: Uint8Array, sampleRate = PCM_SAMPLE_RATE): Uint8Array {
   return out;
 }
 
+/**
+ * `voiceId` is OUR id, not Google's. It is written to `narrations.voice_id`,
+ * rendered in the reader, and must stay stable across a provider change — a
+ * narration is cached forever, so the id that names it cannot be one vendor's
+ * catalogue entry.
+ *
+ * So each adapter maps it, exactly as it already maps tier -> model. Passing
+ * ours through unmapped is what previously failed every story at `narrating`:
+ * Gemini answered `400 Voice name papercub_default is not supported`, which
+ * surfaced as a bare `internal` after the whole book had been illustrated and
+ * paid for.
+ *
+ * `sulafat` is Google's warm prebuilt voice, which is the register the design
+ * asks for on a bedtime page. An unknown id throws rather than falling back:
+ * silently substituting a voice would change how every future narration sounds
+ * with nothing recording that it happened.
+ */
+const GEMINI_VOICE_IDS: Record<string, string> = {
+  papercub_default: 'sulafat',
+};
+
+function geminiVoiceName(voiceId: string): string {
+  const name = GEMINI_VOICE_IDS[voiceId];
+  if (!name) {
+    throw new Error(
+      `No Gemini voice mapped for voice id "${voiceId}". Add it to ` +
+        `GEMINI_VOICE_IDS rather than passing our id through: the provider ` +
+        `rejects an unknown voice name and the story fails after it has been ` +
+        `fully illustrated.`,
+    );
+  }
+  return name;
+}
+
   const speech: SpeechSynthesizer = {
     async synthesise({ text: toSpeak, voiceId }) {
       const startedMs = Date.now();
@@ -391,7 +437,7 @@ function pcmToWav(pcm: Uint8Array, sampleRate = PCM_SAMPLE_RATE): Uint8Array {
         generationConfig: {
           responseModalities: ['AUDIO'],
           speechConfig: {
-            voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceId } },
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: geminiVoiceName(voiceId) } },
           },
         },
       });

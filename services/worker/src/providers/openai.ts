@@ -15,6 +15,8 @@
 
 import { buildIllustrationPrompt, buildStoryPrompt } from '../pipeline/prompt-builder';
 import type { DrawingAnalysis, GeneratedStory } from '@papercub/shared';
+import { normaliseDrawingAnalysis } from './drawing-analysis';
+import { describeImage } from './image-meta';
 import { imageCostCents, providerOf, speechCostCents, textCostCents } from './pricing';
 import type {
   ImageGenerator,
@@ -213,7 +215,9 @@ export function createOpenAiProviders(opts: OpenAiOptions): {
         text: { format: { type: 'json_schema', ...DRAWING_ANALYSIS_JSON_SCHEMA } },
       });
       return {
-        value: outputText(response) as DrawingAnalysis,
+        // Same normalisation as gemini.ts: an unchecked cast here is the bug
+        // that made character_build fail 100% of the time on the live provider.
+        value: normaliseDrawingAnalysis(outputText(response)),
         usage: tokenUsage(response, opts.textModel, startedMs),
       };
     },
@@ -243,19 +247,46 @@ export function createOpenAiProviders(opts: OpenAiOptions): {
         provider: providerOf(opts.imageModel),
       };
 
+      const imageBytes = new Uint8Array(Buffer.from(b64, 'base64'));
       return {
-        value: { imageBytes: new Uint8Array(Buffer.from(b64, 'base64')), seed: input.seed },
+        value: { imageBytes, seed: input.seed, meta: describeImage(imageBytes) },
         usage,
       };
     },
   };
+
+  /**
+   * Ours -> OpenAI's, for the same reason gemini.ts maps it: `voiceId` is the
+   * id we store on `narrations` and it must not be one vendor's catalogue
+   * entry. `shimmer` is the closest register to Gemini's `sulafat`, so a story
+   * that failed over does not sound like a different book.
+   */
+  const OPENAI_VOICE_IDS: Record<string, string> = {
+    papercub_default: 'shimmer',
+  };
+
+  function openAiVoiceName(voiceId: string): string {
+    const name = OPENAI_VOICE_IDS[voiceId];
+    if (!name) {
+      throw new Error(
+        `No OpenAI voice mapped for voice id "${voiceId}". Add it to ` +
+          `OPENAI_VOICE_IDS rather than passing our id through.`,
+      );
+    }
+    return name;
+  }
 
   const speech: SpeechSynthesizer = {
     async synthesise({ text: toSpeak, voiceId }) {
       const startedMs = Date.now();
       const audioBytes = (await post(
         '/audio/speech',
-        { model: opts.ttsModel, voice: voiceId, input: toSpeak, response_format: 'mp3' },
+        {
+          model: opts.ttsModel,
+          voice: openAiVoiceName(voiceId),
+          input: toSpeak,
+          response_format: 'mp3',
+        },
         'binary',
       )) as Uint8Array;
 

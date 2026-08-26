@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { REFUNDABLE_JOB_ERRORS, STORY_SHAPE } from '@papercub/shared';
-import type { StoryGenerateJobPayload } from '@papercub/shared';
+import type { CharacterBuildJobPayload, StoryGenerateJobPayload } from '@papercub/shared';
 import { runJob } from '../runner';
 import { silentLogger } from '../logger';
 import type { PipelineDeps } from '../pipeline/context';
@@ -74,7 +74,57 @@ function setup(args: {
   return { db, providers, deps };
 }
 
+function characterJob(): CharacterBuildJobPayload {
+  return {
+    type: 'character_build',
+    jobId: JOB_ID,
+    parentId: PARENT_ID,
+    childId: CHILD_ID,
+    characterId: CHARACTER_ID,
+    drawingId: '88888888-8888-4888-8888-888888888888',
+    cutoutStorageKey: 'drawings/55555555-5555-4555-8555-555555555555/d/cutout.png',
+    estimatedCostCents: 16,
+    modelBundleVersion: 'test',
+    enqueuedAt: new Date().toISOString(),
+    attempt: 1,
+  };
+}
+
 const CAP = 50_000;
+
+/**
+ * The character slot is a live count of characters that are neither archived
+ * nor failed. A build that fails and stays `building` therefore keeps its slot
+ * forever — and the free tier grants exactly one character, ever. That is a
+ * permanent lockout with nothing delivered, so it gets a regression test.
+ */
+describe('character_build — the slot must come back on failure', () => {
+  it('marks the character failed when a stage throws', async () => {
+    const { db, deps } = setup({ providers: { failImageCallNumber: 1 } });
+
+    const outcome = await runJob({ job: characterJob(), deps, globalDailySpendCapCents: CAP });
+
+    expect(outcome.kind).toBe('failed');
+    expect(db.state.failedCharacters).toEqual([CHARACTER_ID]);
+  });
+
+  it('leaves the character alone when the build succeeds', async () => {
+    const { db, deps } = setup({});
+
+    const outcome = await runJob({ job: characterJob(), deps, globalDailySpendCapCents: CAP });
+
+    expect(outcome.kind).toBe('succeeded');
+    expect(db.state.failedCharacters).toEqual([]);
+  });
+
+  it('does not touch a character on a STORY failure', async () => {
+    const { db, deps } = setup({ providers: { failImageCallNumber: 1 } });
+
+    await runJob({ job: storyJob(), deps, globalDailySpendCapCents: CAP });
+
+    expect(db.state.failedCharacters).toEqual([]);
+  });
+});
 
 describe('story pipeline — the happy path', () => {
   it('runs every stage in the specified order, once each', async () => {

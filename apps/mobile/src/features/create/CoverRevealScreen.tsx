@@ -6,6 +6,7 @@ import type { StoryDetailDto } from '@papercub/shared';
 import { Screen, Text, Button, EyebrowLabel } from '../../components';
 import { useCreateFlow } from './CreateFlowContext';
 import { apiClient } from '../../lib/api';
+import { useSignedMedia } from '../../lib/api/useSignedMedia';
 import { colour, shadow, spacing } from '../../theme';
 
 /** C4 — Cover reveal. */
@@ -18,6 +19,8 @@ export function CoverRevealScreen() {
     apiClient.call('getStory', { id: draft.storyId }).then((res) => setStory(res.story));
   }, [draft.storyId]);
 
+  const { urls: signedUrls } = useSignedMedia(story ? [story.cover?.storageKey] : []);
+
   if (!story) return <Screen />;
 
   return (
@@ -27,7 +30,7 @@ export function CoverRevealScreen() {
         <View style={styles.coverWrap}>
           <View style={[styles.cover, shadow.coverArt]}>
             {story.cover ? (
-              <Image source={{ uri: `https://picsum.photos/seed/${story.cover.storageKey}/640/800` }} style={StyleSheet.absoluteFill} contentFit="cover" />
+              <Image source={{ uri: signedUrls[story.cover.storageKey] }} style={StyleSheet.absoluteFill} contentFit="cover" />
             ) : null}
           </View>
         </View>

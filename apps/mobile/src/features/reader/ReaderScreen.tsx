@@ -4,6 +4,7 @@ import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import type { StoryDetailDto } from '@papercub/shared';
 import { Screen, Text } from '../../components';
+import { useSignedMedia } from '../../lib/api/useSignedMedia';
 import { apiClient } from '../../lib/api';
 import { colour, inkAlpha, radius, spacing } from '../../theme';
 
@@ -36,6 +37,13 @@ export function ReaderScreen({ storyId }: { storyId: string }) {
     const t = setInterval(() => setElapsedMs((e) => e + 1000), 1000);
     return () => clearInterval(t);
   }, [playing]);
+
+  // Before the early return: hooks may not be conditional. One batched
+  // media-sign for the whole book — private buckets, so a storage key is not a
+  // URL and never can be.
+  const { urls: signedUrls } = useSignedMedia(
+    story ? [story.cover?.storageKey, ...story.pages.map((p) => p.illustration?.storageKey)] : [],
+  );
 
   if (!story) return <Screen background={colour.paperGroundAlt} />;
 
@@ -78,9 +86,9 @@ export function ReaderScreen({ storyId }: { storyId: string }) {
         ) : null}
 
         <View style={styles.artFrame}>
-          {pageReady && page?.illustration ? (
+          {pageReady && page?.illustration && signedUrls[page.illustration.storageKey] ? (
             <Image
-              source={{ uri: `https://picsum.photos/seed/${page.illustration.storageKey}/600/450` }}
+              source={{ uri: signedUrls[page.illustration.storageKey] }}
               style={StyleSheet.absoluteFill}
               contentFit="cover"
             />

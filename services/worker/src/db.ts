@@ -172,6 +172,18 @@ export function createWorkerDb(client: ServiceClient): WorkerDb {
       }
     },
 
+    async isJobFinished(jobId: string): Promise<boolean> {
+      const { data, error } = await client
+        .from('generation_jobs')
+        .select('finished_at')
+        .eq('id', jobId)
+        .maybeSingle();
+      // A read failure must not strand the message: fall through and let the
+      // job run. Re-running costs money; refusing to run loses the story.
+      if (error) return false;
+      return data?.finished_at != null;
+    },
+
     async loadCharacters(characterIds: string[]): Promise<CharacterRecord[]> {
       const { data, error } = await client
         .from('characters')
@@ -390,6 +402,14 @@ export function createWorkerDb(client: ServiceClient): WorkerDb {
         })
         .eq('id', characterId);
       if (error) throw new Error(`characters update failed: ${error.message}`);
+    },
+
+    async setCharacterStatus(characterId: string, status: 'failed') {
+      const { error } = await client
+        .from('characters')
+        .update({ status })
+        .eq('id', characterId);
+      if (error) throw new Error(`characters status update failed: ${error.message}`);
     },
 
     async insertCharacterAsset(row) {

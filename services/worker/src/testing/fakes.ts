@@ -50,6 +50,8 @@ export interface FakeDbState {
   narrations: NarrationRow[];
   uploads: { key: string; bytes: number }[];
   pageStatuses: { index: number; status: StoryPageStatus }[];
+  /** Characters marked failed, so a test can assert the slot was given back. */
+  failedCharacters: string[];
 }
 
 export interface FakeDbOptions {
@@ -81,6 +83,7 @@ export function createFakeDb(opts: FakeDbOptions = {}): FakeDb {
     narrations: [],
     uploads: [],
     pageStatuses: [],
+    failedCharacters: [],
   };
 
   let refunded = opts.alreadyRefunded ?? false;
@@ -124,6 +127,10 @@ export function createFakeDb(opts: FakeDbOptions = {}): FakeDb {
 
     async emitProgress(event) {
       state.progressEvents.push(event);
+    },
+
+    async isJobFinished() {
+      return false;
     },
 
     async loadCharacters() {
@@ -178,6 +185,9 @@ export function createFakeDb(opts: FakeDbOptions = {}): FakeDb {
     },
 
     async updateCharacterFromAnalysis() {},
+    async setCharacterStatus(characterId) {
+      state.failedCharacters.push(characterId);
+    },
 
     async insertCharacterAsset() {},
   };
@@ -271,7 +281,13 @@ export function createFakeProviders(opts: FakeProviderOptions = {}): FakeProvide
 
       const cost = tier === 'premium' ? (opts.coverCostCents ?? 3.9) : (opts.pageCostCents ?? 2.1);
       return {
-        value: { imageBytes: new Uint8Array([9, 9, 9]), seed: 4242 },
+        value: {
+          imageBytes: new Uint8Array([9, 9, 9]),
+          seed: 4242,
+          // A real adapter reads this off the bytes; the fake states it, so a
+          // pipeline test still exercises the columns it writes.
+          meta: { mimeType: 'image/png', ext: 'png', width: 1024, height: 768 },
+        },
         usage: { ...usage(cost, `fake-image-${tier}`), imageCount: 1 },
       };
     },

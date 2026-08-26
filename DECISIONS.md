@@ -211,7 +211,7 @@ them feed the cost guarantee directly.
 | 2 | **Gemini TTS returns PCM, not MP3.** The worker writes `.mp3` with an estimated `durationMs` | Narration will be malformed on first real run. Certain bug, not a maybe. |
 | 3 | Gemini response shapes (`usageMetadata`, image `inlineData`) assumed | Unpriced calls throw rather than record zero, so this fails loudly — good — but it fails. |
 | 4 | `pgmq` PostgREST exposure unverified (`pgmq_public` vs `pgmq`) | Worker may not be able to read the queue at all. |
-| 5 | Illustration dimensions hardcoded (1024×1280 cover, 1024×768 page) | Needs an image decoder dependency to do properly. |
+| 5 | ~~Illustration dimensions hardcoded (1024×1280 cover, 1024×768 page)~~ | **CLOSED §17.** Gemini returns JPEG at 928×1152 / 1200×896. `providers/image-meta.ts` reads format and size off the header — no decoder dependency needed. |
 | 6 | `record_cost` takes only `(job, cents, final)` — per-call provider/model/token detail is logged, not stored | When cost/story drifts past the §6 alert there is no queryable breakdown. Needs a B1 table. |
 
 **Do not treat the §2 cost model as validated until items 1–3 are closed against
@@ -320,47 +320,299 @@ capacity recovers; that single number validates or breaks the pricing model.
   remove the schema-exposure dependency, the per-poll HTTP round-trip, and allow
   LISTEN-based wakeups. Worth doing before deploy.
 
-## 17. Live run — unresolved: the pipeline stalls at `moderating_input`
+## 17. Live run — RESOLVED. Cost per story is measured.
 
-Eight attempts. Everything up to the first pipeline stage works against live
-infrastructure; the job then sits at `moderating_input` for ~100s and fails with
-`provider_timeout` ("This operation was aborted"), having made no provider call.
+Two complete stories generated end to end against the real Supabase project and
+Gemini on 26 Aug 2026. Both reached `status = 'ready'`: 6 pages, 7 illustrations,
+narration, all four moderation gates, reservation released to zero.
 
-### Fixed along the way (all committed)
+**Measured cost of a short story: 28.3c and 28.4c.** Against a 45c estimate.
 
-- `emitProgress` created a Realtime channel it never subscribed to, then awaited
-  `removeChannel()` — a teardown that never resolves for a channel that never
-  connected. Now bounded to 2s and non-fatal. **This one would have stalled
-  every job in production**, and its symptom was a misleading `provider_timeout`.
-- `PRICE_TABLE` held only `gemini-2.5-*` entries, so every 3.x model threw
-  `UnknownModelPriceError` before any work. Added 11 entries. The guard behaved
-  correctly — it refuses to record a zero rather than corrupt the ceiling.
-- Transient 429/5xx now retried with jittered backoff (6 attempts, ~62s).
-- Model ids corrected against what the key actually exposes.
+### The stall was three separate things, only one of which was in the pipeline
 
-### Still failing
+1. **`emitProgress` awaited a Realtime teardown that never resolved** — the
+   channel was created but never subscribed, so `removeChannel()` never settled.
+   Fixed in 6492289 and it did work; the fix was simply never observed running.
+2. **Fourteen stale worker processes were draining the same queue**, the oldest
+   four hours old, each `tsx` holding a frozen snapshot of the source from its
+   own start time. Every "run" after that point was a race between up to
+   fourteen different vintages of the code. This is the literal explanation for
+   "instrumentation produced no output, which suggests the patched code paths
+   are not the ones executing" — they were not. **Kill every worker before
+   re-running.** `pkill -f "tsx src/index.ts"`.
+3. **`provider_timeout` at exactly 121s was real, not a phantom.** That is
+   `DEFAULT_TIMEOUT_MS = 120_000` in `gemini.ts` aborting a genuinely hung
+   multimodal call — gate 1 sends the cut-out to the text model, and that was
+   the class of call §16 recorded as degraded. Nothing in our code was waiting
+   on an unsettleable promise; Google was simply not answering. The stage was
+   right and the error code was right.
 
-After those fixes the stall persists, and instrumentation has not localised it:
-`console.error` is block-buffered when stderr is redirected and was lost on
-SIGTERM; a rewrite to `appendFileSync` also produced no output, which suggests
-the patched code paths are not the ones executing.
+### Bugs found and fixed by getting to the end
 
-**Next step is to read the code, not to test it.** Specifically: what runs
-between `runner` setting `stage = 'moderating_input'` and `gateInputImage`
-making its first call — and whether anything there awaits a promise that can
-never settle (a second Realtime/channel use, a `for await`, or an unresolved
-`await` on a Supabase client created with a stale connection).
+4. **The narration voice id was passed straight through to the provider.**
+   `pipeline/story.ts` sends `voiceId: 'papercub_default'` — our stable domain
+   id, stored on `narrations.voice_id` and rendered in the reader. Gemini
+   answered `400 Voice name papercub_default is not supported`, which surfaced
+   as a bare `internal` **after the entire book had been written, illustrated
+   and paid for**. Each adapter now maps our id to its own catalogue
+   (`sulafat` on Gemini, `shimmer` on OpenAI) and throws on an unmapped id
+   rather than substituting a voice silently.
+5. **Narration was uploaded as `audio/mpeg` while holding WAV bytes.** The
+   synthesiser already reported its own `mimeType`; the pipeline ignored it.
+6. **Every illustration was stored as `.png` / `image/png` at a hardcoded
+   1024x1280 or 1024x768.** Gemini returns **JPEG at 928x1152 (cover) and
+   1200x896 (page)**, so the object contradicted its own content type and every
+   `page_illustrations` row carried dimensions the file did not have — and the
+   reader lays out from those columns. `providers/image-meta.ts` now reads
+   format and size off the header. **This closes §14 item 5**: it needed a
+   header read, not an image decoder dependency.
 
-### Measured cost per story remains UNKNOWN
+Items 4, 5 and 6 are all one mistake — asserting what a provider returned
+instead of reading it. It is the same mistake as writing PCM into a `.mp3`
+(§16). Assume nothing about provider output that the bytes can be asked.
 
-§11's economics — €7.99, 5 stories, the $3.85 ceiling — are still arithmetic.
+### Measured economics
 
-### What the run did prove
+Breakdown of the 28.4c, from the billed quantities the provider itself reported:
 
-- 27 migrations, 18 tables, 18 with RLS, on a real instance.
-- Storage upload; queue read via `public.queue_*` wrappers.
-- `claim_story_quota` end to end: ownership, entitlement, derived cost,
-  reservation, enqueue — atomic.
-- Gate 1 ran and wrote 17 `moderation_events` on the one run that got furthest.
-- **The refund path, nine times, across four distinct error codes.** Every
-  failure returned `usage_records` to `used=0, accrued=0c, RESERVED=0c`.
+| Component | Model | Measured |
+|---|---|---|
+| Cover, premium tier | `gemini-3.1-flash-image` | 6.70c |
+| 6 interior pages, fast tier | `gemini-3.1-flash-lite-image` | 20.16c |
+| Story text + all four gates + TTS | — | ~1.51c |
+| **Total** | | **28.37c** |
+
+**Images are 95% of a story.** Everything else — the story itself, seventeen
+moderation calls, a 72-second narration — is a cent and a half.
+
+Projecting the other lengths from the measured per-page marginal (3.36c image +
+~0.19c moderation/narration share), and applying §2's 15% retry overhead so the
+comparison is like for like:
+
+| Length | Modelled (§2) | Measured / projected, +15% |
+|---|---|---|
+| Short (6pp) | $0.45 | **$0.33** (measured) |
+| Normal (10pp) | $0.64 | $0.49 (projected) |
+| Bedtime (12pp) | $0.74 | $0.57 (projected) |
+
+Worst legitimate month (5 bedtime + amortised character): **~$2.90**, against
+$3.74 modelled and the $3.85 ceiling. Revised margins:
+
+| Plan | Modelled @15% | Measured @15% | Measured @30% |
+|---|---|---|---|
+| Monthly EUR 7.99 | $2.02 (35%) | **$2.86 (50%)** | $1.84 (39%) |
+| Annual EUR 79.99 | $1.07 (22%) | **$1.91 (40%)** | $1.05 (27%) |
+
+The annual-at-30% case, which was the thin one at 5%, is now 27%.
+
+**§5's headroom decision is therefore live.** Measured cost is ~26% below model
+across the board, which is the same order as the ~30% the Fidelity Ladder was
+expected to unlock. Page counts could return to the designer's 8/12/16 at the
+same price. Do not act on it yet — see the caveats.
+
+### What is still NOT measured — do not treat the table above as final
+
+- **The price table is still researched, not invoiced** (§14 item 1). The
+  *quantities* are now real: billed image counts and token counts read off
+  Gemini's own responses. The *unit prices* they are multiplied by have still
+  never been checked against a bill. Reconcile against the first real Gemini
+  invoice before repricing anything.
+- **`character_build` has never run.** Both stories used pre-seeded characters,
+  so the $0.16 character cost is untouched arithmetic.
+- **Normal and Bedtime are projections**, not measurements. Only `short` has
+  been run — the free tier is short-only and that is what the quota allowed.
+- **Neither run retried.** The 15% retry overhead remains an assumption, and
+  §16's 503 storms say the real figure is bursty rather than a flat 15%.
+
+### New open item: storage per story is about double the model
+
+A short story stores **5.2 MB of illustrations + 3.5 MB of narration = 8.7 MB**.
+The narration is uncompressed 24kHz/16-bit WAV, which is the format gemini.ts
+chose deliberately to avoid an ffmpeg dependency. A bedtime story's narration
+would be ~7 MB, and the bucket file size limit is 12 MB — it fits, but with
+little room, and per-user storage is roughly twice what was assumed. Encoding to
+AAC needs ffmpeg in the worker image.
+
+## 18. character_build, the character slot, and the app on the live backend
+
+Worked 26 Aug 2026, after §17 closed. Three things were asked for; a fourth was
+found in the middle of them and mattered more than two of the three.
+
+### 18a. `character_build` had never once succeeded
+
+Every attempt died at `analysing_drawing` with `invalid_structured_output` — so
+the very first thing a real user does, photograph a drawing and wait, produced
+nothing, every time.
+
+The vision model answers honestly and off-schema. Measured live against
+`gemini-3.1-flash-lite` on a real cut-out:
+
+```
+dominantColours: ["purple", "white", "dark grey"]   <- DrawingAnalysis wants #rrggbb
+suggestedTraits: [4 items]                          <- cap is 3
+subjectGuess:    59 characters                      <- cap is 60
+```
+
+The first two were the reported failures. **The third is the one that mattered
+more**: 59 against a cap of 60 is a coin flip, so fixing only the reported two
+would have moved the failure somewhere else and made it look like a new bug.
+
+Fixed in the adapter, not the contract (PLAN.html §8), in
+`services/worker/src/providers/drawing-analysis.ts`: CSS colour names and
+`rgb()` to hex, 3- and 4-digit hex expanded, alpha stripped, unparseable colours
+dropped, arrays sliced to their caps, text clamped on a word boundary. The
+strict shape stays in the contract. What is absorbed is only ever DECORATIVE
+(`palette` tints a card) or a PROPOSAL (`suggestedTraits` need a parent's
+explicit approval) — failing a whole character build over the string "dark grey"
+is disproportionate to what the field is for.
+
+The prompt now also asks for hex and for the caps. That is prevention and it
+works — the first successful build returned real hex codes — but it is not
+relied on. The normaliser is the guarantee.
+
+**Not absorbed: `distinguishingFeatures`.** It becomes `feature_anchor`, which
+every later illustration prompt for that character is conditioned on. The
+contract caps the array but sets no minimum, so an empty one parses cleanly and
+would produce a character that drifts page to page — the one thing the product
+promises it will not do. `runCharacterBuild` now rejects an empty feature anchor
+itself. `invalid_structured_output` is refundable, so that fails safe.
+
+**Measured: 6.86c**, in 16.8s, against a 16c estimate. The reference sheet is
+faithful to the drawing. 29 regression tests, fixture taken verbatim from the
+live response.
+
+### 18b. `createCharacter` could not reach the worker AT ALL
+
+Found while answering 18c. `generation_jobs` is SELECT-only for `authenticated`
+by design, and B1 supplied a security-definer claim function for
+`story_generate` and nothing else. `_shared/jobs.ts` documented this and raised
+a typed error; the catch block then deleted the character and the drawing.
+
+So `character_build` was broken twice over, independently: the Edge Function
+could not enqueue one, and the worker could not have completed one if it had.
+The 18a measurement was only possible by inserting the job by hand.
+
+Closed by migration `20260826200000_claim_character_build.sql`, mirroring
+`claim_story_quota`'s discipline — ownership, limits, ceiling, reservation with
+`cost_reserved = true`, job insert and `pgmq.send`, all in one transaction. It
+is deliberately NARROWER than the story one: the drawing and character rows stay
+under the caller's own JWT where RLS applies to them, and only what RLS must
+forbid a client to do happens with elevated rights.
+
+The cut-out storage key is resolved from the character id inside the function
+rather than taken from the caller — a caller-supplied key would let one account
+point a build at another account's drawing.
+
+### 18c. The character slot: nothing incremented it, and a failure kept it
+
+Both halves of the question, answered against the live database.
+
+**Does the Edge Function increment `characters_used`?** No — and nothing else
+does either. `usage_records.characters_used` is a dead column. `charactersUsed`
+has always been DERIVED, by counting the caller's non-archived `characters`
+rows (`_shared/quota.ts`). That is a good property: a derived count cannot drift
+the way a counter incremented in one place and decremented in another can. The
+column is now commented in the schema as dead so nobody starts writing it and
+creates two sources of truth.
+
+**Does a failed build give the slot back?** It did not. The row stayed at status
+`building`, still counted, forever. On the free tier — one character, ever —
+a user whose first build failed could never make another, with nothing
+delivered. There was nothing to refund because nothing had been incremented.
+
+Fixed by excluding `failed` from the count and having the worker mark the
+character `failed` on any terminal failure. No second counter, no refund path,
+nothing that can double-release. Verified live: with one `ready` character a
+second claim is refused `character_quota_exhausted`; mark the first `failed` and
+the claim succeeds.
+
+The mark happens AFTER the refund and the reservation release, deliberately. A
+missed slot costs the user a slot until the row is archived; a missed refund
+costs real money and cannot be reconstructed.
+
+### 18d. At-least-once delivery is not theoretical — it fired, and it double-paid
+
+§15 finding 10 assumed a crash between settle and `queue.delete`. The real
+trigger is far more ordinary: **any job slower than the visibility timeout**.
+
+Observed live on a character_build whose image call was slow. `read_ct` went
+1 -> 2, the stage went BACKWARDS from `building_character_refs` to
+`analysing_drawing`, and every provider call in it was made and paid for twice.
+The visibility timeout was 180s. A normal story measures 154s. There was
+essentially no margin, and a bedtime story has none at all.
+
+Two changes: `QUEUE_VISIBILITY_TIMEOUT_SECONDS` default 180 -> 900, and the
+consumer now discards a redelivered message whose job already has `finished_at`.
+The second closes redelivery-after-completion; only the timeout margin closes
+the concurrent case.
+
+**What held, under genuine concurrent double-processing: the exactly-once
+reservation release.** `cost_cents_reserved` came back to 0, not -16. The
+`cost_reserved` guard from §15 finding 4 did exactly what it was written to do,
+against a race nobody had managed to reproduce before.
+
+### 18e. The app now talks to the live backend (§13 resolved)
+
+- `src/lib/api/supabase-client.ts` implements `ApiClient` against the Edge
+  Functions. `endpoints` disambiguates only by fn+method, which collides for
+  GET, so each function sub-routes by URL path — the client half of that
+  convention is one explicit route table, so drift is a diff in one file rather
+  than a 404 at runtime. Responses are re-validated against the contract schema.
+- `apiClient` is live when Supabase credentials are present, mock otherwise.
+  The flag is credentials-present rather than a manual switch, so populating
+  `.env` is all it takes. It is NOT a failover: a configured-but-failing backend
+  throws and screens render offline, never fabricated data.
+- `features/session/SessionProvider` is now a thin re-export of B5's real
+  `useSession()`. The mock session path is gone. `AuthProvider` MUST stay
+  outside it — the `session` function returns 401 before an anonymous JWT
+  exists.
+- **The reader and cover screens were pointing at `picsum.photos`**, seeded with
+  the storage key. Placeholder art from the mock era — and it put a private
+  storage key in a request to a third-party host. Both now go through
+  `useSignedMedia`, one batched `media-sign` call per screen.
+
+### Where the economics stand
+
+| | Modelled (§2) | Measured |
+|---|---|---|
+| Short (6pp) | $0.45 | **$0.283** |
+| Normal (10pp) | $0.64 | **$0.43** |
+| Bedtime (12pp) | $0.74 | ~$0.50 extrapolated |
+| Character (one-off) | $0.16 | **$0.0686** |
+
+**Free tier total lifetime exposure: 35.2c** (one short story + one character),
+against the $0.61 modelled in §2.
+
+Still not invoiced (§14 item 1). The quantities are measured; the unit prices
+they multiply are researched. Do not reprice until a real Gemini bill confirms
+them.
+
+### Still open, found here
+
+- **§15 finding 11 is NOT closed.** `CreateCharacterRequest` has no
+  `idempotencyKey` field — unlike `CreateStoryRequest` — so there is nothing for
+  `createCharacter` to honour but a fresh uuid, and a retried request still
+  mints a second character and burns a second slot. Closing it is a contract
+  change plus a client change.
+- The claim of a character slot is atomic with the job insert, but not with the
+  character row insert that precedes it. The existing catch block deletes both
+  on failure, so the window is small and self-cleaning, but it is not zero.
+
+### 18f. Two live-project blockers, found by trying to drive the app
+
+The app builds, boots and renders against the live build. It cannot yet do
+anything authenticated, for two reasons that are both configuration:
+
+1. **Anonymous sign-ins are disabled on the project.**
+   `422 anonymous_provider_disabled`. §12 makes anonymous the first-launch path
+   and §7 makes it the base of the whole auth model, so this is not optional.
+   One dashboard toggle.
+2. **None of the eleven Edge Functions are deployed** — every one 404s. They
+   pass `deno check`, but the project has only ever been exercised through
+   `psql` and the worker, so nothing ever needed them. Not deployed here:
+   pushing code to a live internet-reachable endpoint is outward-facing and was
+   not part of the request.
+
+Worth recording because both were invisible from the code: the migrations, the
+worker and the queue all work against this project, so "the backend is proven"
+was true of everything except the layer the app actually talks to.

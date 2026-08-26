@@ -53,7 +53,8 @@ export async function runNarrationGenerate(args: NarrationRunArgs): Promise<void
     id: `narration-${job.language}`,
     ext: speech.value.mimeType === 'audio/wav' ? 'wav' : 'mp3',
   });
-  await db.uploadObject(key, speech.value.audioBytes, 'audio/mpeg');
+  // See story.ts: the content type comes from the synthesiser, never a guess.
+  await db.uploadObject(key, speech.value.audioBytes, speech.value.mimeType);
 
   await db.insertNarration({
     storyId: job.storyId,

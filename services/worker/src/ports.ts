@@ -162,11 +162,29 @@ export interface WorkerDb {
   incrementPageRegenCount(storyId: string, pageIndex: number): Promise<number>;
   replaceIllustration(row: IllustrationRow): Promise<string>;
 
+  /**
+   * Has this job already reached a terminal state? pgmq is at-least-once, so a
+   * job slower than the visibility timeout is redelivered WHILE IT IS STILL
+   * RUNNING and a second worker starts it from the top. Observed live on a
+   * character_build: read_ct went 1 -> 2, the stage went backwards from
+   * `building_character_refs` to `analysing_drawing`, and every provider call
+   * was paid for twice.
+   */
+  isJobFinished(jobId: string): Promise<boolean>;
+
   /* Character build. */
   updateCharacterFromAnalysis(
     characterId: string,
     patch: { featureAnchor: string; palette: string[]; status: 'ready' | 'failed' },
   ): Promise<void>;
+  /**
+   * A terminal failure marks the character `failed`. The character slot is a
+   * live COUNT of characters that are neither archived nor failed, so this is
+   * what gives the slot back — on the free tier, where the limit is one
+   * character ever, a build that failed and stayed `building` locked the user
+   * out permanently with nothing to show for it.
+   */
+  setCharacterStatus(characterId: string, status: 'failed'): Promise<void>;
   insertCharacterAsset(row: {
     characterId: string;
     kind: string;

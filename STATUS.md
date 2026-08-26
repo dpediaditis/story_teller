@@ -7,26 +7,59 @@ Last updated 26 Aug 2026. Branch `scaffold`, pushed.
 | | |
 |---|---|
 | 4 packages typecheck | shared · worker · vision-module · mobile |
-| Tests | 84 (78 worker, 6 shared) |
+| Tests | 116 (110 worker, 6 shared) |
 | Metro bundle | 4.8 MB, clean |
 | **Native iOS build** | `expo prebuild` + `pod install` + `xcodebuild` — exit 0, zero errors |
 | Vision module Swift | compiles; `libPapercubVision.a` built for arm64 + x86_64 |
-| Schema | 25 migrations, 17 tables, all RLS, verified from scratch |
+| Schema | 28 migrations, 18 tables, 18 with RLS, verified on the live instance |
 | Edge Functions | 11, all pass `deno check` |
 | Stack | Expo 57 · RN 0.86 · React 19 · Xcode 26 |
 
+## Proven end to end
+
+**Stories and characters both generate against live Supabase + Gemini**
+(26 Aug 2026). Stories reach `status = 'ready'` with cover, pages, narration and
+all four moderation gates; the reservation returns to zero every time.
+`DECISIONS.md` §17 and §18 have the full account.
+
+**Measured cost** — quantities read off the provider's own responses:
+
+| | Modelled | Measured |
+|---|---|---|
+| Short (6pp) | $0.45 | **$0.283** |
+| Normal (10pp) | $0.64 | **$0.43** |
+| Bedtime (12pp) | $0.74 | ~$0.50 extrapolated |
+| Character build | $0.16 | **$0.0686** |
+
+Images are 95% of a story. Free-tier total lifetime exposure is **35.2c**
+against the $0.61 modelled. The thin annual-at-30% margin moves from 5% to ~25%.
+Do NOT reprice yet — see below.
+
+Gemini TTS PCM and the model ids are both closed: TTS is wrapped in a WAV header
+with an exact duration, and the model ids are verified against the live key.
+
+**The app is on the live backend** (`DECISIONS.md` §13 resolved). `apiClient`
+talks to the Edge Functions whenever Supabase credentials are present and falls
+back to the mock only when there is no `.env`; the mock session path is deleted.
+Reader and cover art now come from `media-sign` signed URLs instead of the
+`picsum.photos` placeholders left over from the mock era.
+
 ## Not proven
 
-**Nothing has generated a real story.** Supabase and Gemini keys are in `.env`
-but no story has been produced end to end. Until that happens:
-
-- `DECISIONS.md` §14: the worker's provider price table is **placeholder**,
-  back-derived from the cost model rather than read off real pricing. The whole
-  of §11's economics rests on it.
-- Gemini TTS returns **PCM, not MP3**. The worker writes `.mp3` with an
-  estimated duration. This is a certain bug, not a maybe.
-- The four Gemini model ids in `services/worker/src/config.ts` are guesses and
-  have never been checked against live model availability.
+- `DECISIONS.md` §14 item 1: the price table is **researched, not invoiced**.
+  The quantities multiplied by it are now measured; the unit prices are not.
+  Reconcile against the first real Gemini bill before repricing anything.
+- **Bedtime has never been generated.** Short and Normal are measured; Bedtime
+  is extrapolated from the measured per-page marginal (3.66c/page fast tier).
+- **Neither run retried.** §2's 15% retry overhead is still an assumption, and
+  §16's 503 storms suggest the real figure is bursty rather than flat.
+- **The app has not been driven end to end in the Simulator.** The wiring is
+  written and typechecks; `expo-secure-store` cannot reach the Keychain in the
+  iOS 26 simulator without a signed build, which blocks anonymous sign-in and
+  therefore every authenticated call. See "Running the app" below.
+- Storage per short story is **8.7 MB** (5.2 MB images + 3.5 MB uncompressed WAV
+  narration), roughly double the model. Fits the 12 MB bucket cap; AAC needs
+  ffmpeg in the worker image.
 
 **The Vision module has never run.** Compiling proves the Swift is valid. It
 says nothing about whether subject-lifting isolates a real crayon drawing, or
@@ -51,15 +84,69 @@ None are reachable while the app runs on mocks.
 
 ## Next, in order
 
-1. **Run one real story.** Start the worker, create a character, generate.
-   Compare measured cost/story against $0.45 / $0.64 / $0.74. This is the
-   highest-value unknown in the project.
+1. **Get a signed simulator build**, then drive photograph -> character -> story
+   -> read against the live backend. Everything below the UI is proven; this is
+   the last unverified layer.
 2. **Test Vision on a real device.** `open apps/mobile/ios/Papercub.xcworkspace`,
    Signing → Automatically manage → Personal Team, ⌘R. Free provisioning is
    enough; no Apple Developer Program needed. See `APPLE_SETUP.md`.
 3. **Close §15 findings 5–8, 10–11** before real money moves.
 4. Swap `SessionProvider` to B5's real `useSession()` and delete the mock
    session path (`DECISIONS.md` §13).
+
+## Running the app
+
+```
+cd apps/mobile && pnpm start
+```
+
+`apiClient` goes live automatically when `.env` has Supabase credentials — there
+is no flag to flip.
+
+The app boots and renders against the live build — onboarding, navigation and
+the whole shell are confirmed working on the iOS 26 simulator.
+
+**Two blockers stop the end-to-end drive, and NEITHER is code:**
+
+1. **Anonymous sign-ins are disabled on the Supabase project.**
+   `POST /auth/v1/signup` returns
+   `422 anonymous_provider_disabled`. DECISIONS.md §12 makes anonymous the
+   first-launch path, so nothing authenticated can happen until this is on:
+   Dashboard -> Authentication -> Sign In / Providers -> **Anonymous Sign-Ins**.
+2. **No Edge Functions are deployed.** All eleven return 404 on the live
+   project — `session`, `characters`, `stories`, `jobs`, `media-sign`. They pass
+   `deno check` locally but have never been pushed:
+   ```
+   npx supabase functions deploy --project-ref <ref>
+   ```
+   Not done here: deploying to a live project is outward-facing and was not
+   asked for.
+
+**Also fixed while getting there:** the prebuilt Debug app in DerivedData
+carried NO entitlements, so `expo-secure-store` failed with "A required
+entitlement isn't present" and no session could be stored. Rebuilding with
+`CODE_SIGN_ENTITLEMENTS` resolved it; the build now lives in
+`apps/mobile/ios/build`. Re-signing an existing bundle ad-hoc does NOT work —
+the simulator then refuses to launch it. Do NOT "fix" the Keychain failure by
+moving the session to AsyncStorage (`src/lib/supabase.ts` explains why).
+
+## Running the worker — read this first
+
+`tsx` loads the source once at start, so a worker process is a **frozen snapshot
+of the code from the moment it launched**. Fourteen stale workers accumulated
+across earlier sessions and raced each other for the same queue, which is why
+three rounds of instrumentation appeared to produce nothing: the patched code
+was genuinely not the code running. Kill everything before every run.
+
+```
+pkill -f "tsx src/index.ts"
+```
+
+Two more had accumulated by the start of the next session. Check every time.
+
+The queue visibility timeout is now **900s**, up from 180s: a normal story takes
+154s, so at 180s pgmq redelivered the message while the job was still running and
+a second worker generated and PAID FOR the whole thing again (§18d).
 
 ## Known cruft
 

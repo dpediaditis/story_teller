@@ -26,9 +26,10 @@ import {
 import { requireUser } from '../_shared/auth.ts';
 import { parseBody, parseQuery } from '../_shared/body.ts';
 import { toCharacterDto, toJobStatusDto } from '../_shared/dto.ts';
-import { insertJobOrExplain } from '../_shared/jobs.ts';
 import { loadEntitlementAndQuota, loadRawUsage } from '../_shared/quota.ts';
 import { ApiFailure, ok, withEnvelope } from '../_shared/respond.ts';
+
+const MODEL_BUNDLE_VERSION = Deno.env.get('MODEL_BUNDLE_VERSION') ?? 'papercub-2026.08';
 
 const CHARACTER_SELECT =
   'id, child_id, drawing_id, name, character_type, personality_traits, palette, status, created_at, archived_at';
@@ -327,13 +328,54 @@ async function createCharacter(
     if (characterError) throw characterError;
     characterId = character.id;
 
-    const jobRow = await insertJobOrExplain(supabase, {
-      parentId: userId,
-      characterId,
-      type: 'character_build',
-      estimatedCostCents: CHARACTER_BUILD_ESTIMATED_COST_CENTS,
-      idempotencyKey: crypto.randomUUID(),
+    // claim_character_build (migration 20260826200000) claims the slot,
+    // reserves the cost, writes the generation_jobs row and enqueues, all in
+    // one transaction. A direct insert here is blocked by RLS by design —
+    // generation_jobs is SELECT-only for `authenticated` — which is why this
+    // path could not work at all before that migration existed.
+    //
+    // §15 finding 11 is NOT closed here. The claim function honours an
+    // idempotency key, but `CreateCharacterRequest` has no field to carry one —
+    // unlike CreateStoryRequest — so there is nothing to pass but a fresh uuid,
+    // and a retried request still mints a second character. Closing it is a
+    // contract change (add `idempotencyKey` to CreateCharacterRequest) plus a
+    // client change, not a fix that belongs in this function alone.
+    const { data: claim, error: claimError } = await supabase.rpc('claim_character_build', {
+      p_character_id: characterId,
+      p_model_bundle_version: MODEL_BUNDLE_VERSION,
+      p_idempotency_key: crypto.randomUUID(),
     });
+    if (claimError) throw claimError;
+
+    const claimed = claim as {
+      ok: boolean;
+      jobId?: string;
+      blockedBy?: string;
+      charactersUsed?: number;
+      charactersLimit?: number;
+    };
+
+    if (!claimed.ok) {
+      const { quota: blockedQuota } = await loadEntitlementAndQuota(supabase, userId);
+      throw new ApiFailure(
+        claimed.blockedBy === 'cost_ceiling_reached' ? 'cost_ceiling_exceeded' : 'quota_exceeded',
+        {
+          message: `character build refused: ${claimed.blockedBy}`,
+          copyKey:
+            claimed.blockedBy === 'cost_ceiling_reached'
+              ? 'error.cost_ceiling_exceeded'
+              : 'error.quota_exceeded.character',
+          details: { quota: blockedQuota },
+        },
+      );
+    }
+
+    const { data: jobRow, error: jobError } = await supabase
+      .from('generation_jobs')
+      .select('*')
+      .eq('id', claimed.jobId!)
+      .single();
+    if (jobError) throw jobError;
 
     const dto = await hydrateCharacter(supabase, character);
     const { quota: freshQuota } = await loadEntitlementAndQuota(supabase, userId);

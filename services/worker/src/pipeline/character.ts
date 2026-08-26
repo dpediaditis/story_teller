@@ -77,6 +77,22 @@ export async function runCharacterBuild(args: CharacterRunArgs): Promise<void> {
 
   const featureAnchor = analysis.distinguishingFeatures.join(', ');
 
+  // The contract allows an empty `distinguishingFeatures` — it caps the array
+  // but sets no minimum, and widening it would change a wire type over a
+  // worker concern. The pipeline cannot allow it: this string becomes
+  // `feature_anchor`, and every illustration prompt for this character for the
+  // rest of its life is conditioned on it. A character built without one drifts
+  // page to page, which is the one thing the product promises it will not do.
+  // `invalid_structured_output` is refundable, so failing here returns the
+  // slot rather than spending it on a character that would look wrong.
+  if (featureAnchor.length === 0) {
+    throw new JobFailure(
+      'invalid_structured_output',
+      `Vision model returned no distinguishing features for character ${job.characterId}; ` +
+        `there is nothing to anchor later illustrations to.`,
+    );
+  }
+
   /* ── building_character_refs ───────────────────────────────────────── */
 
   await progress.enterStage('building_character_refs');
@@ -115,14 +131,16 @@ export async function runCharacterBuild(args: CharacterRunArgs): Promise<void> {
     pageIndex: 0,
   });
 
+  // See story.ts: format and dimensions are read off the returned bytes.
+  const sheetMeta = sheet.value.meta;
   const sheetKey = buildStorageKey({
     bucket: 'character-assets',
     ownerUid: job.parentId,
     scope: job.characterId,
     id: 'reference-sheet',
-    ext: 'png',
+    ext: sheetMeta.ext,
   });
-  await db.uploadObject(sheetKey, sheet.value.imageBytes, 'image/png');
+  await db.uploadObject(sheetKey, sheet.value.imageBytes, sheetMeta.mimeType);
 
   await db.insertCharacterAsset({
     characterId: job.characterId,
@@ -131,8 +149,8 @@ export async function runCharacterBuild(args: CharacterRunArgs): Promise<void> {
     modelId: sheet.usage.modelId,
     promptHash: null,
     isPrimary: true,
-    widthPx: 1024,
-    heightPx: 1024,
+    widthPx: sheetMeta.width,
+    heightPx: sheetMeta.height,
   });
 
   await db.updateCharacterFromAnalysis(job.characterId, {

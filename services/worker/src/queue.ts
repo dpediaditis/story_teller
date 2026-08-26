@@ -103,6 +103,25 @@ export function createQueueConsumer(opts: QueueConsumerOptions): QueueConsumer {
     }
 
     const job = parsed.data;
+
+    // DECISIONS.md §15 finding 10. pgmq guarantees at-least-once, so a
+    // redelivered message whose job already finished must NOT be run again —
+    // every provider call in it has already been paid for once.
+    //
+    // This closes the redelivered-after-completion case. It does NOT close the
+    // concurrent case, where the job is still running when the visibility
+    // timeout expires; only a visibility timeout comfortably above the worst
+    // job duration does that, which is why the default moved to 900s.
+    if (await db.isJobFinished(job.jobId)) {
+      logger.warn('message redelivered for an already-finished job; discarding', {
+        jobId: job.jobId,
+        msgId: msg.msgId,
+        readCt: msg.readCt,
+      });
+      await queue.delete(msg.msgId);
+      return { halted: false };
+    }
+
     const result = await handle(job);
 
     if (result.kind === 'halted') {

@@ -127,6 +127,22 @@ export async function runJob(opts: RunJobOptions): Promise<JobOutcome> {
 
     await progress.markFailed(failure.code);
 
+    // Deliberately AFTER the refund and the reservation release: the character
+    // slot matters, but not enough to risk the money path if this write fails.
+    // A slot is derived from a live count, so a missed write here costs the user
+    // a slot until the row is archived — a refund missed here would cost real
+    // money and could not be reconstructed.
+    if (job.type === 'character_build') {
+      try {
+        await db.setCharacterStatus(job.characterId, 'failed');
+      } catch (statusErr) {
+        logger.error('failed to mark character failed; its slot stays consumed', {
+          characterId: job.characterId,
+          reason: statusErr instanceof Error ? statusErr.message : String(statusErr),
+        });
+      }
+    }
+
     logger.error('job failed', {
       errorCode: failure.code,
       refunded,

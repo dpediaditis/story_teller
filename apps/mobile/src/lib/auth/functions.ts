@@ -2,7 +2,10 @@ import { FunctionsHttpError } from '@supabase/supabase-js';
 import type { z } from 'zod';
 import type { ApiError } from '@papercub/shared';
 import { supabase } from '../supabase';
-import { ApiCallError } from '../api';
+// Imported from the leaf module, NOT the '../api' barrel: the barrel now also
+// exports supabaseApiClient, which imports this file — a require cycle that
+// leaves one of the two uninitialised at runtime depending on load order.
+import { ApiCallError } from '../api/client';
 
 /**
  * Calls an `account-merge` / `session` Edge Function directly (these two

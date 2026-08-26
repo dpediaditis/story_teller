@@ -60,8 +60,18 @@ const EnvSchema = z.object({
   OPENAI_TTS_MODEL: z.string().default('gpt-4o-mini-tts'),
 
   /* ── Queue ────────────────────────────────────────────────────────────── */
-  /** docs/ARCHITECTURE.md: "pgmq.read (visibility timeout 180s)". */
-  QUEUE_VISIBILITY_TIMEOUT_SECONDS: z.coerce.number().int().min(1).default(180),
+  /**
+   * docs/ARCHITECTURE.md specified 180s. Measured against it, that is too low:
+   * a normal story takes 154s and a bedtime story is longer, so pgmq redelivers
+   * the message while the job is still running and a second worker generates —
+   * and pays for — the whole book again. Observed live on a character_build.
+   *
+   * The timeout has to sit comfortably above the WORST job duration, not the
+   * typical one, because a Gemini 503 storm adds ~62s of backoff per call. The
+   * cost of it being too high is only that a genuinely crashed worker's message
+   * waits longer to be retried, and the client is polling the job row anyway.
+   */
+  QUEUE_VISIBILITY_TIMEOUT_SECONDS: z.coerce.number().int().min(1).default(900),
   QUEUE_POLL_INTERVAL_MS: z.coerce.number().int().min(50).default(1000),
   QUEUE_BATCH_SIZE: z.coerce.number().int().min(1).default(1),
 });
