@@ -10,11 +10,6 @@ const config: ExpoConfig = {
   orientation: 'portrait',
   userInterfaceStyle: 'light',
   icon: './assets/icon.png',
-  splash: {
-    image: './assets/splash.png',
-    resizeMode: 'contain',
-    backgroundColor: '#fbf7f0',
-  },
   ios: {
     bundleIdentifier: process.env.APPLE_BUNDLE_ID ?? 'com.papercub.app',
     supportsTablet: false,
@@ -25,7 +20,20 @@ const config: ExpoConfig = {
         "Papercub can use a photo of your child's drawing from your library. The photo stays on this phone; only the cut-out drawing is uploaded.",
     },
   },
-  plugins: ['expo-router', '@papercub/vision-module'],
+  plugins: [
+    'expo-router',
+    // Splash moved out of ExpoConfig into this plugin in a recent SDK.
+    // backgroundColor is colour.paperGround from packages/shared tokens.
+    [
+      'expo-splash-screen',
+      {
+        image: './assets/splash.png',
+        resizeMode: 'contain',
+        backgroundColor: '#fbf7f0',
+      },
+    ],
+    '@papercub/vision-module',
+  ],
   extra: {
     supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL,
     supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,

@@ -149,6 +149,16 @@ export async function applyManualMask(args: { imageUri: string; maskUri: string 
 }
 
 /**
+ * expo-modules-core 57 made `EventEmitter` generic over an events MAP, rather
+ * than taking the payload type on `addListener`. Passing no map infers
+ * `TEventsMap = never`, which constrains the event-name generic to
+ * `keyof never` — the TS2344 this replaces.
+ */
+type PapercubVisionEvents = {
+  onCaptureGuidance: (guidance: CaptureGuidance) => void;
+};
+
+/**
  * Live capture guidance. Returns an unsubscribe function; calling it stops the
  * underlying camera session.
  *
@@ -163,7 +173,7 @@ export function subscribeCaptureGuidance(listener: (guidance: CaptureGuidance) =
     subscription =
       typeof native.addListener === 'function'
         ? native.addListener('onCaptureGuidance', listener)
-        : new EventEmitter(native as never).addListener<CaptureGuidance>('onCaptureGuidance', listener);
+        : new EventEmitter<PapercubVisionEvents>(native as never).addListener('onCaptureGuidance', listener);
     void native.startCaptureGuidance();
   } catch {
     // A camera that will not start is not a crash — the capture screen keeps

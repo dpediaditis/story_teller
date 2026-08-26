@@ -19,3 +19,15 @@ PLAN.html
 DESIGN_BRIEF.md
 Design deliverables checklist.zip
 design_v2/
+
+# local helper scripts (session workarounds, not part of the project)
+check-setup.sh
+diagnose.sh
+upgrade.sh
+fix.sh
+fix-upgrade.sh
+fix2.sh
+fix3.sh
+fix4.sh
+fix5.sh
+ship.sh

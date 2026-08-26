@@ -1,11 +1,11 @@
-import { View } from 'react-native';
+import { View, type ColorValue } from 'react-native';
 
 /**
  * The design's own tab icons are drawn with plain divs/borders, not SVG — no
  * icon font or `react-native-svg` dependency is installed, so this mirrors
  * that approach with plain Views. Keeps Expo Go happy with zero extra deps.
  */
-export function BookIcon({ color }: { color: string }) {
+export function BookIcon({ color }: { color: ColorValue }) {
   return (
     <View style={{ width: 22, height: 18 }}>
       <View
@@ -38,7 +38,7 @@ export function BookIcon({ color }: { color: string }) {
   );
 }
 
-export function CharacterIcon({ color }: { color: string }) {
+export function CharacterIcon({ color }: { color: ColorValue }) {
   return (
     <View style={{ width: 22, height: 19 }}>
       <View
@@ -71,7 +71,7 @@ export function CharacterIcon({ color }: { color: string }) {
   );
 }
 
-export function FamilyIcon({ color }: { color: string }) {
+export function FamilyIcon({ color }: { color: ColorValue }) {
   return (
     <View style={{ width: 26, height: 19 }}>
       <View
