@@ -389,14 +389,15 @@ export async function runStoryGenerate(args: StoryRunArgs): Promise<void> {
       });
       await db.uploadObject(
         timingsKey,
-        new TextEncoder().encode(JSON.stringify(alignment.anchors)),
+        new TextEncoder().encode(JSON.stringify(alignment.timings)),
         'application/json',
       );
       wordTimingsKey = timingsKey;
       logger.info('narration aligned', {
         storyId: job.storyId,
-        anchored: alignment.anchoredCount,
-        boundaries: alignment.boundaryCount,
+        sentencesAnchored: alignment.anchoredCount,
+        sentenceBoundaries: alignment.boundaryCount,
+        clausesAnchored: alignment.clauseAnchoredCount,
       });
     } else {
       logger.info('narration not aligned; reader falls back to the modelled timeline', {

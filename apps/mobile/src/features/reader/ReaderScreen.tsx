@@ -11,13 +11,13 @@ import {
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import type { NarratedPage, StoryDetailDto } from '@papercub/shared';
-import type { SentenceAnchors } from '@papercub/shared';
+import type { NarrationTimings } from '@papercub/shared';
 import {
   DEFAULT_NARRATION_VOICE_ID,
   NARRATION_VOICES,
   buildNarrationTimeline,
-  isSentenceAnchors,
   pageIndexAtMs,
+  parseNarrationTimings,
   wordAtMs,
 } from '@papercub/shared';
 import { Screen, Text, Button } from '../../components';
@@ -108,7 +108,7 @@ export function ReaderScreen({ storyId }: { storyId: string }) {
   const timingsUrl = story?.narration?.wordTimingsKey
     ? (signedUrls[story.narration.wordTimingsKey] ?? null)
     : null;
-  const [anchors, setAnchors] = useState<SentenceAnchors | null>(null);
+  const [timings, setTimings] = useState<NarrationTimings | null>(null);
 
   useEffect(() => {
     if (!timingsUrl) return;
@@ -116,7 +116,8 @@ export function ReaderScreen({ storyId }: { storyId: string }) {
     fetch(timingsUrl)
       .then((res) => res.json())
       .then((json: unknown) => {
-        if (!cancelled && isSentenceAnchors(json)) setAnchors(json);
+        const parsed = parseNarrationTimings(json);
+        if (!cancelled && parsed) setTimings(parsed);
       })
       .catch(() => undefined);
     return () => {
@@ -169,9 +170,9 @@ export function ReaderScreen({ storyId }: { storyId: string }) {
     return buildNarrationTimeline(
       readable.map((p) => ({ index: p.index, text: p.text })),
       story.narration.durationMs,
-      anchors,
+      timings,
     );
-  }, [story, anchors]);
+  }, [story, timings]);
 
   const turn = useCallback(
     (next: number, seek: boolean) => {

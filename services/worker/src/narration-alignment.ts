@@ -16,8 +16,12 @@
  * lives in `@papercub/shared` (`alignSentenceBoundaries`), where it is tested.
  */
 
-import { alignSentenceBoundaries, splitStorySentences } from '@papercub/shared';
-import type { SentenceAnchors } from '@papercub/shared';
+import {
+  alignSentenceBoundaries,
+  splitStorySentences,
+  splitStoryWords,
+} from '@papercub/shared';
+import type { StoryWord, WordTimings } from '@papercub/shared';
 
 /** 2% of peak. See the header — measured, not guessed. */
 const SILENCE_FRACTION_OF_PEAK = 0.02;
@@ -36,6 +40,15 @@ const SENTENCE_GAP_MS = 380;
 const EDGE_GAP_MS = 150;
 /** The shortest gap that is a deliberate pause rather than a stop consonant. */
 const PAUSE_GAP_MS = 120;
+/**
+ * The shortest gap that can pin a clause inside a sentence.
+ *
+ * Sentence anchors alone left the highlight drifting within a long sentence —
+ * the right band, the wrong word. The comma pauses measured at 120-330ms are
+ * the obvious next set of pins, and a clause is short enough that whatever is
+ * left over is not visible.
+ */
+const CLAUSE_GAP_MS = 110;
 
 export interface PcmAudio {
   /** Signed 16-bit little-endian mono samples. */
@@ -121,6 +134,164 @@ export function findSilences(audio: PcmAudio, minMs: number): DetectedSilence[] 
 }
 
 /**
+ * Cumulative milliseconds of actual speech up to each frame.
+ *
+ * Spreading words evenly across elapsed time assumes the narrator talks the
+ * whole way through, and they do not — a breath, a stop consonant or a hesitation
+ * eats clock without moving the words on. Distributing over VOICED time instead
+ * removes that, and it is the difference between a highlight that keeps nudging
+ * ahead of the voice and one that sits on it.
+ */
+interface VoicedClock {
+  /** Voiced ms elapsed at `ms`. Monotone, saturating at the end. */
+  at(ms: number): number;
+  /** The time at which `voicedMs` of speech has happened. */
+  timeAt(voicedMs: number): number;
+}
+
+function buildVoicedClock(audio: PcmAudio): VoicedClock {
+  const frame = Math.max(1, Math.round((audio.sampleRate * FRAME_MS) / 1000));
+  const frames: number[] = [];
+  for (let i = 0; i + frame <= audio.samples.length; i += frame) {
+    let sum = 0;
+    for (let j = 0; j < frame; j += 1) {
+      const v = audio.samples[i + j]!;
+      sum += v * v;
+    }
+    frames.push(Math.sqrt(sum / frame));
+  }
+  const peak = frames.length > 0 ? Math.max(...frames) : 0;
+  const threshold = peak * SILENCE_FRACTION_OF_PEAK;
+
+  // cumulative[f] = voiced ms before frame f.
+  const cumulative = new Float64Array(frames.length + 1);
+  for (let f = 0; f < frames.length; f += 1) {
+    cumulative[f + 1] = cumulative[f]! + (frames[f]! >= threshold ? FRAME_MS : 0);
+  }
+  const totalVoiced = cumulative[frames.length]!;
+
+  return {
+    at(ms) {
+      const f = Math.max(0, Math.min(frames.length, Math.round(ms / FRAME_MS)));
+      return cumulative[f]!;
+    },
+    timeAt(voicedMs) {
+      const target = Math.max(0, Math.min(totalVoiced, voicedMs));
+      let lo = 0;
+      let hi = frames.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (cumulative[mid]! < target) lo = mid + 1;
+        else hi = mid;
+      }
+      return lo * FRAME_MS;
+    },
+  };
+}
+
+/**
+ * How near a word boundary must be to a pause before it is snapped onto it.
+ *
+ * Measured across seven real narrations, against two metrics — how far a
+ * within-sentence pause sits from the nearest word boundary, and whether word
+ * durations still look like their syllable counts:
+ *
+ *   no snapping   156ms   p95 relative duration error 1.48
+ *   180ms          105ms   1.49
+ *   340ms           63ms   1.51
+ *   420ms           49ms   1.51
+ *
+ * Distortion is flat the whole way, so the snapping is finding real boundaries
+ * rather than bending the timeline to fit. It keeps improving past 340ms, and
+ * 340 is where it stops being defensible anyway: a word averages about 300ms
+ * here, so beyond roughly one word the nearest boundary is no longer obviously
+ * the right one. The last 14ms is below anything a reader would see.
+ */
+const SNAP_TOLERANCE_MS = 340;
+
+/**
+ * Place every word between two known times.
+ *
+ * Two things happen here, and the second is why the first is not enough.
+ *
+ * Words are laid out on the VOICED clock — time in which the narrator is
+ * actually speaking — so a breath or a stop consonant does not push the
+ * highlight forward while nothing is being said.
+ *
+ * Then every pause inside the span pulls the nearest word boundary onto it. On
+ * its own the voiced clock does not do this: it removes silence from the budget
+ * but leaves boundaries wherever the syllable fractions happen to land, and
+ * measured against the narrator's own pauses it was worse than the model it
+ * replaced (156ms vs 118ms mean error). A pause is the one moment in a sentence
+ * where we know for certain that one word has finished and the next has not
+ * started, which makes it the strongest evidence available short of a phoneme
+ * model.
+ */
+function placeWords(
+  words: StoryWord[],
+  startMs: number,
+  endMs: number,
+  clock: VoicedClock,
+  pauses: DetectedSilence[],
+  out: Map<number, { i: number; s: number; e: number }>,
+): void {
+  if (words.length === 0) return;
+
+  const totalSyllables = words.reduce((sum, w) => sum + w.syllableWeight, 0);
+  const voicedStart = clock.at(startMs);
+  const voicedSpan = clock.at(endMs) - voicedStart;
+
+  // Boundary k sits between word k and word k+1; there are words.length - 1.
+  const boundaries: number[] = [];
+  if (totalSyllables > 0 && voicedSpan > 0) {
+    let acc = 0;
+    for (let k = 0; k < words.length - 1; k += 1) {
+      acc += words[k]!.syllableWeight;
+      boundaries.push(clock.timeAt(voicedStart + (acc / totalSyllables) * voicedSpan));
+    }
+  } else {
+    const step = (endMs - startMs) / words.length;
+    for (let k = 0; k < words.length - 1; k += 1) boundaries.push(startMs + (k + 1) * step);
+  }
+
+  /* Snap to the narrator's pauses. Each pause claims the nearest free boundary,
+   * nearest pause first, so a boundary is never stolen by a worse match. */
+  const inSpan = pauses
+    .filter((p) => p.startMs > startMs && p.endMs < endMs)
+    .map((p) => ({ ...p, distance: Number.POSITIVE_INFINITY, at: -1 }));
+  for (const pause of inSpan) {
+    for (let k = 0; k < boundaries.length; k += 1) {
+      const distance = Math.abs(boundaries[k]! - pause.startMs);
+      if (distance < pause.distance) {
+        pause.distance = distance;
+        pause.at = k;
+      }
+    }
+  }
+  const snapped = new Map<number, DetectedSilence>();
+  for (const pause of inSpan.sort((a, b) => a.distance - b.distance)) {
+    if (pause.at < 0 || pause.distance > SNAP_TOLERANCE_MS) continue;
+    if (snapped.has(pause.at)) continue;
+    snapped.set(pause.at, pause);
+  }
+
+  let cursor = startMs;
+  words.forEach((w, k) => {
+    const isLast = k === words.length - 1;
+    const pause = snapped.get(k);
+    let end: number;
+    if (isLast) end = endMs;
+    else if (pause) end = pause.startMs;
+    else end = boundaries[k]!;
+    // Monotone whatever the snapping did.
+    end = Math.min(endMs, Math.max(cursor, end));
+    out.set(w.index, { i: w.index, s: Math.round(cursor), e: Math.round(end) });
+    // A word does not begin during the silence before it.
+    cursor = pause ? Math.min(endMs, Math.max(end, pause.endMs)) : end;
+  });
+}
+
+/**
  * Sentence boundaries for one story's narration, or null if the audio does not
  * support them.
  *
@@ -130,10 +301,12 @@ export function findSilences(audio: PcmAudio, minMs: number): DetectedSilence[] 
  * reader falls back.
  */
 export interface NarrationAlignment {
-  anchors: SentenceAnchors;
-  /** Boundaries placed on a measured pause, of `boundaryCount` total. */
+  timings: WordTimings;
+  /** Sentence boundaries placed on a measured pause, of `boundaryCount`. */
   anchoredCount: number;
   boundaryCount: number;
+  /** Clause boundaries also pinned to a pause inside a sentence. */
+  clauseAnchoredCount: number;
 }
 
 export function alignNarration(
@@ -178,9 +351,91 @@ export function alignNarration(
   );
   if (!alignment) return null;
 
+  /* Sentence spans are measured. Now go one level finer.
+   *
+   * Every comma-length pause inside a sentence is another pin, and between
+   * pins the words are laid out on the voiced clock rather than on the wall
+   * clock. Sentence anchors alone were audibly better but still drifted within
+   * a long sentence, which is exactly the span this closes. */
+  const clock = buildVoicedClock(audio);
+  const clausePauses = findSilences(audio, CLAUSE_GAP_MS).filter(inside);
+  const wordsByPage = splitStoryWords(pages);
+  const placed = new Map<number, Map<number, { i: number; s: number; e: number }>>();
+  let clauseAnchoredCount = 0;
+
+  sentences.forEach((sentence, sentenceOrder) => {
+    const span = alignment.spans[sentenceOrder]!;
+    const page = wordsByPage.find((p) => p.pageIndex === sentence.pageIndex);
+    if (!page) return;
+    const words = page.words.filter((w) => w.sentenceIndex === sentence.sentenceIndex);
+    if (words.length === 0) return;
+    const out = placed.get(sentence.pageIndex) ?? new Map();
+    placed.set(sentence.pageIndex, out);
+
+    // Split the sentence at its clause-ending words, and pin each split to the
+    // nearest pause the narrator actually took inside this sentence.
+    const clauseEnds: number[] = [];
+    words.forEach((w, k) => {
+      if (w.endsClause && k < words.length - 1) clauseEnds.push(k);
+    });
+
+    const inSentence = clausePauses
+      .filter((p) => p.startMs > span.startMs && p.endMs < span.endMs)
+      .map((p) => p.endMs);
+
+    let cursorMs = span.startMs;
+    let cursorWord = 0;
+    for (const endIndex of clauseEnds) {
+      // Where the syllable model puts this clause end, then the nearest pause.
+      const before = words.slice(cursorWord, endIndex + 1);
+      const remaining = words.slice(cursorWord);
+      const beforeSyll = before.reduce((sum, w) => sum + w.syllableWeight, 0);
+      const remainingSyll = remaining.reduce((sum, w) => sum + w.syllableWeight, 0);
+      if (remainingSyll <= 0) break;
+      const voicedFrom = clock.at(cursorMs);
+      const voicedTo = clock.at(span.endMs);
+      const expectedMs = clock.timeAt(
+        voicedFrom + (beforeSyll / remainingSyll) * (voicedTo - voicedFrom),
+      );
+
+      let pinMs: number | null = null;
+      let bestDistance = Number.POSITIVE_INFINITY;
+      for (const pause of inSentence) {
+        if (pause <= cursorMs || pause >= span.endMs) continue;
+        const distance = Math.abs(pause - expectedMs);
+        // Half a clause. Beyond that it is somebody else's pause.
+        if (distance < bestDistance && distance < (span.endMs - span.startMs) / 2) {
+          bestDistance = distance;
+          pinMs = pause;
+        }
+      }
+      if (pinMs === null) continue;
+
+      placeWords(before, cursorMs, pinMs, clock, clausePauses, out);
+      cursorMs = pinMs;
+      cursorWord = endIndex + 1;
+      clauseAnchoredCount += 1;
+    }
+
+    placeWords(words.slice(cursorWord), cursorMs, span.endMs, clock, clausePauses, out);
+  });
+
+  const timings: WordTimings = {
+    version: 2,
+    kind: 'word_timings',
+    durationMs,
+    pages: wordsByPage.map((page) => ({
+      p: page.pageIndex,
+      w: page.words
+        .map((w) => placed.get(page.pageIndex)?.get(w.index))
+        .filter((t): t is { i: number; s: number; e: number } => t !== undefined),
+    })),
+  };
+
   return {
-    anchors: { version: 1, kind: 'sentence_anchors', durationMs, sentences: alignment.spans },
+    timings,
     anchoredCount: alignment.anchoredCount,
     boundaryCount: alignment.boundaryCount,
+    clauseAnchoredCount,
   };
 }

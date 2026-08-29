@@ -1160,3 +1160,58 @@ reported, every page now turns within 0ms of where it was measured by hand.
 
 The fallback stays for narrations that cannot be aligned, and `timeline.anchored`
 says which one you are looking at.
+
+## §23 — Down to the word
+
+§22 anchored sentences and the drift was still visible inside one. Three things
+closed the gap, and the order matters because the first two are not enough on
+their own.
+
+**Clause pins.** The comma-length pauses (120-330ms) that §22 measured but only
+counted are now candidates in their own right, matched to words ending in a
+comma, semicolon, colon or dash. Worth less than expected on these stories —
+between 0 and 5 per book, because the writer produces short sentences with few
+commas — but free, given the pauses were already detected.
+
+**A voiced clock.** Spreading words across elapsed time assumes the narrator
+talks the whole way through. They do not: a breath or a stop consonant eats
+clock without moving the words on. Words are now distributed over time in which
+the narrator is actually speaking.
+
+**Snapping to the pauses.** This is the one that worked, and the measurement is
+why it exists at all. A pause inside a sentence is the one moment where we know
+for certain that one word has ended and the next has not started, and the voiced
+clock does not use that: it removes silence from the budget but leaves
+boundaries wherever the syllable fractions land. Measured against the narrator's
+own within-sentence pauses, the clock ALONE was worse than what it replaced —
+156ms mean error against 118ms.
+
+### The metric, and not trusting it too far
+
+Mean distance from a within-sentence pause to the nearest word boundary, across
+all seven narrations. It improves monotonically as the snap tolerance grows,
+which is exactly what a gameable metric looks like: a large enough tolerance
+drags any boundary onto any pause.
+
+So it is paired with a distortion guard — do word durations still look like
+their syllable counts:
+
+| snap tolerance | pause error | p95 relative duration error |
+|---|---|---|
+| none | 156ms | 1.48 |
+| 180ms | 105ms | 1.49 |
+| **340ms** | **63ms** | **1.51** |
+| 420ms | 49ms | 1.51 |
+
+Distortion is flat throughout, so the snapping is finding real boundaries rather
+than bending the timeline to fit. 340ms is the stopping point on an argument
+rather than a number: a word averages about 300ms here, and past roughly one
+word the nearest boundary is no longer obviously the right one. The remaining
+14ms is below anything a reader can see.
+
+### Format
+
+`narrations.word_timings_key` now holds word times (`version: 2`) rather than
+sentence anchors. The reader reads both and falls back to the model for either.
+Timings that do not cover every word of the text are rejected wholesale — half a
+page highlighted correctly and half not is worse than none.

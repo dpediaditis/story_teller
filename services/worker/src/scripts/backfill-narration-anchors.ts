@@ -28,11 +28,13 @@ async function main() {
 
   const { data: narrations, error } = await db
     .from('narrations')
-    .select('id, story_id, storage_key, duration_ms, word_timings_key')
-    .is('word_timings_key', null);
+    .select('id, story_id, storage_key, duration_ms, word_timings_key');
   if (error) throw error;
 
-  console.log(`${narrations?.length ?? 0} narration(s) without timings\n`);
+  /* Every narration, not just the ones missing timings: this re-runs to upgrade
+   * a file written by an older version of the detector. Uploads are upsert and
+   * the key is derived, so re-running is safe and idempotent. */
+  console.log(`${narrations?.length ?? 0} narration(s)\n`);
 
   for (const narration of narrations ?? []) {
     const { data: pages, error: pagesError } = await db
@@ -66,10 +68,11 @@ async function main() {
 
     if (dryRun) {
       const before = buildNarrationTimeline(pages, narration.duration_ms);
-      const after = buildNarrationTimeline(pages, narration.duration_ms, alignment.anchors);
+      const after = buildNarrationTimeline(pages, narration.duration_ms, alignment.timings);
       console.log(
         `${narration.story_id}  ${sentences.length} sentences, ${pages.length} pages, ` +
-          `${alignment.anchoredCount}/${alignment.boundaryCount} boundaries measured`,
+          `${alignment.anchoredCount}/${alignment.boundaryCount} sentence boundaries + ` +
+          `${alignment.clauseAnchoredCount} clauses measured`,
       );
       for (let i = 0; i < after.pages.length; i += 1) {
         const b = before.pages[i]!;
@@ -87,7 +90,7 @@ async function main() {
     const timingsKey = narration.storage_key.replace(/\.[^.]+$/, '') + '.timings.json';
     const { error: uploadError } = await db.storage
       .from('narration')
-      .upload(timingsKey.replace(/^narration\//, ''), JSON.stringify(alignment.anchors), {
+      .upload(timingsKey.replace(/^narration\//, ''), JSON.stringify(alignment.timings), {
         contentType: 'application/json',
         upsert: true,
       });
@@ -100,7 +103,8 @@ async function main() {
     if (updateError) throw updateError;
 
     console.log(
-      `${narration.story_id}  anchored ${alignment.anchoredCount}/${alignment.boundaryCount} boundaries`,
+      `${narration.story_id}  anchored ${alignment.anchoredCount}/${alignment.boundaryCount} ` +
+        `sentence boundaries + ${alignment.clauseAnchoredCount} clauses`,
     );
   }
 }

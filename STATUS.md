@@ -89,8 +89,10 @@ in §21 drifted up to 2.3s by page four and was visibly out of sync. The worker
 now finds the narrator's pauses in the PCM and stores the sentence boundaries on
 `narrations.word_timings_key`; page turns land on measured stops and word
 highlighting is confined to one sentence of error. All seven existing narrations
-were backfilled. `DECISIONS.md` §22 has the measurements and the two cost
-functions that had to be got right.
+were backfilled. §23 then took it down to the word: clause pins, a voiced clock, and
+snapping boundaries onto the narrator's pauses, which cut the mean distance from
+a within-sentence pause to the nearest word boundary from 156ms to 63ms with no
+measurable distortion. `DECISIONS.md` §22 and §23 have the measurements.
 
 `packages/shared` now runs its tests. It had a `test/` directory and no `test`
 script, so `sql-constants-sync.test.ts` had never executed in CI or locally.

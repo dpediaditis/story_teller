@@ -3,6 +3,7 @@ import {
   alignSentenceBoundaries,
   buildNarrationTimeline,
   pageIndexAtMs,
+  parseNarrationTimings,
   splitStorySentences,
   wordAtMs,
   type NarrationTimeline,
@@ -341,5 +342,55 @@ describe('wordAtMs', () => {
   it('highlights nothing while a different page is being read', () => {
     expect(wordAtMs(page, timeline.pages[2]!.startMs + 10)).toBeNull();
     expect(wordAtMs(page, -1)).toBeNull();
+  });
+});
+
+describe('word timings — the file the worker writes now', () => {
+  const timings = {
+    version: 2 as const,
+    kind: 'word_timings' as const,
+    durationMs: 40_000,
+    pages: buildNarrationTimeline(PAGES, 40_000).pages.map((p) => ({
+      p: p.pageIndex,
+      w: p.words.map((w) => ({ i: w.index, s: w.startMs + 100, e: w.endMs + 100 })),
+    })),
+  };
+
+  it('is used verbatim rather than remodelled', () => {
+    const timeline = buildNarrationTimeline(PAGES, 40_000, timings);
+    expect(timeline.anchored).toBe(true);
+    const first = timeline.pages[0]!.words[0]!;
+    expect(first.startMs).toBe(timings.pages[0]!.w[0]!.s);
+    expect(first.endMs).toBe(timings.pages[0]!.w[0]!.e);
+  });
+
+  it('still carries the text and sentence numbering from the story', () => {
+    const timeline = buildNarrationTimeline(PAGES, 40_000, timings);
+    expect(timeline.pages[0]!.words[0]!.text).toBe('Pixel');
+    expect(timeline.pages[0]!.words.at(-1)!.sentenceIndex).toBe(1);
+  });
+
+  /* Timings that do not cover the text describe a different story. Half a page
+   * highlighted correctly and half not is worse than none. */
+  it('falls back to the model when a word is missing', () => {
+    const holed = {
+      ...timings,
+      pages: timings.pages.map((p, i) => (i === 0 ? { ...p, w: p.w.slice(0, 2) } : p)),
+    };
+    expect(buildNarrationTimeline(PAGES, 40_000, holed).anchored).toBe(false);
+  });
+
+  it('falls back when a whole page is missing', () => {
+    const short = { ...timings, pages: timings.pages.slice(0, 1) };
+    expect(buildNarrationTimeline(PAGES, 40_000, short).anchored).toBe(false);
+  });
+
+  it('recognises both file formats and rejects anything else', () => {
+    expect(parseNarrationTimings(timings)?.kind).toBe('word_timings');
+    expect(parseNarrationTimings({ version: 1, kind: 'sentence_anchors', durationMs: 1, sentences: [] })?.kind)
+      .toBe('sentence_anchors');
+    for (const junk of [null, 42, {}, { version: 3, kind: 'word_timings' }]) {
+      expect(parseNarrationTimings(junk)).toBeNull();
+    }
   });
 });

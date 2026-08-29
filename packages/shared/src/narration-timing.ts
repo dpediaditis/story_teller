@@ -87,6 +87,25 @@ export interface SentenceAnchors {
   sentences: { startMs: number; endMs: number }[];
 }
 
+/**
+ * Word times, measured. The file the worker writes now.
+ *
+ * Sentence anchors alone left the highlight drifting inside a long sentence —
+ * right band, wrong word — because the words in it were still spread by a
+ * model. The worker has the audio, so it places every word there instead and
+ * ships the answer. Keys are one letter because a 300-word story is a few
+ * kilobytes either way and this is fetched on every open.
+ *
+ * `i` is the index into that page's word list, so the reader must split words
+ * with `splitStoryWords` and nothing else.
+ */
+export interface WordTimings {
+  version: 2;
+  kind: 'word_timings';
+  durationMs: number;
+  pages: { p: number; w: { i: number; s: number; e: number }[] }[];
+}
+
 export function isSentenceAnchors(value: unknown): value is SentenceAnchors {
   if (typeof value !== 'object' || value === null) return false;
   const v = value as Partial<SentenceAnchors>;
@@ -101,6 +120,35 @@ export function isSentenceAnchors(value: unknown): value is SentenceAnchors {
   );
 }
 
+export function isWordTimings(value: unknown): value is WordTimings {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Partial<WordTimings>;
+  return (
+    v.version === 2 &&
+    v.kind === 'word_timings' &&
+    typeof v.durationMs === 'number' &&
+    Array.isArray(v.pages) &&
+    v.pages.every(
+      (p) =>
+        typeof p?.p === 'number' &&
+        Array.isArray(p.w) &&
+        p.w.every(
+          (w) =>
+            typeof w?.i === 'number' && typeof w?.s === 'number' && typeof w?.e === 'number',
+        ),
+    )
+  );
+}
+
+/** Either shape of timings file, so callers can hold one thing. */
+export type NarrationTimings = SentenceAnchors | WordTimings;
+
+export function parseNarrationTimings(value: unknown): NarrationTimings | null {
+  if (isWordTimings(value)) return value;
+  if (isSentenceAnchors(value)) return value;
+  return null;
+}
+
 /** Splits on whitespace and keeps punctuation attached to its word. */
 function toWords(text: string): string[] {
   return text.split(/\s+/u).filter((w) => w.length > 0);
@@ -113,14 +161,23 @@ function pauseWeightFor(word: string): number {
   return 0;
 }
 
-interface WeightedWord {
+/** A word ending in one of these invites a pause shorter than a full stop. */
+const CLAUSE_END = /[,;:—–]["'”’)\]]*$/u;
+
+export interface StoryWord {
   index: number;
   text: string;
   sentenceIndex: number;
   weight: number;
   syllableWeight: number;
   pauseWeight: number;
+  /** True at a comma, semicolon, colon or dash — a place the narrator breathes. */
+  endsClause: boolean;
+  /** True at a full stop, question or exclamation mark. */
+  endsSentence: boolean;
 }
+
+type WeightedWord = StoryWord;
 
 interface WeightedPage {
   pageIndex: number;
@@ -165,6 +222,8 @@ function weighPages(pages: { index: number; text: string }[]): WeightedPage[] {
         syllableWeight,
         pauseWeight,
         weight: syllableWeight + pauseWeight,
+        endsClause: CLAUSE_END.test(text),
+        endsSentence: SENTENCE_END.test(text),
       };
     });
     // The break belongs to the page it follows, so the last word of a page is
@@ -172,6 +231,19 @@ function weighPages(pages: { index: number; text: string }[]): WeightedPage[] {
     const breakWeight = pageOrder < ordered.length - 1 ? PAGE_BREAK_WEIGHT : 0;
     return { pageIndex: page.index, words, breakWeight };
   });
+}
+
+/**
+ * Every page's words, weighted, in reading order.
+ *
+ * The worker needs these to place words against the audio and the reader needs
+ * them to render; both must use the same splitter or a word index means two
+ * different things on the two sides.
+ */
+export function splitStoryWords(
+  pages: { index: number; text: string }[],
+): { pageIndex: number; words: StoryWord[] }[] {
+  return weighPages(pages).map((p) => ({ pageIndex: p.pageIndex, words: p.words }));
 }
 
 export function splitStorySentences(
@@ -230,9 +302,46 @@ function emptyTimeline(weighted: WeightedPage[], durationMs: number): NarrationT
 export function buildNarrationTimeline(
   pages: { index: number; text: string }[],
   durationMs: number,
-  anchors?: SentenceAnchors | null,
+  timings?: NarrationTimings | null,
 ): NarrationTimeline {
   const weighted = weighPages(pages);
+
+  /* Measured word times, straight from the worker. Nothing to model. */
+  if (timings && timings.kind === 'word_timings') {
+    const byPage = new Map(timings.pages.map((p) => [p.p, new Map(p.w.map((w) => [w.i, w]))]));
+    const covered = weighted.every((page) => {
+      const found = byPage.get(page.pageIndex);
+      return found !== undefined && page.words.every((w) => found.has(w.index));
+    });
+    if (covered) {
+      return {
+        totalMs: Math.round(durationMs),
+        anchored: true,
+        pages: weighted.map((page) => {
+          const found = byPage.get(page.pageIndex)!;
+          const words: NarratedWord[] = page.words.map((w) => {
+            const t = found.get(w.index)!;
+            return {
+              index: w.index,
+              text: w.text,
+              sentenceIndex: w.sentenceIndex,
+              startMs: t.s,
+              endMs: t.e,
+            };
+          });
+          return {
+            pageIndex: page.pageIndex,
+            startMs: words[0]?.startMs ?? 0,
+            endMs: words[words.length - 1]?.endMs ?? 0,
+            words,
+          };
+        }),
+      };
+    }
+    // Timings that do not cover this text describe a different story. Fall
+    // through to the model rather than half-highlighting.
+  }
+  const anchors = timings && timings.kind === 'sentence_anchors' ? timings : null;
   const totalWeight = weighted.reduce(
     (sum, p) => sum + p.breakWeight + p.words.reduce((s, w) => s + w.weight, 0),
     0,
