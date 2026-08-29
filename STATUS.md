@@ -69,20 +69,22 @@ to embarrass the product, and the one the Simulator will not answer honestly.
 Milestone 0 bar: >85% clean isolation on crayon/marker, >60% on pencil, across
 20+ real children's drawings.
 
-## Open security findings
+## Security findings — all closed
 
-`DECISIONS.md` §15 has five unfixed items left — finding 10 was closed in §18d.
-Two matter before launch:
+`DECISIONS.md` §15's eleven findings are **all fixed**: six in the original
+pass, finding 10 in §18d, and findings 5, 6, 7, 8 and 11 in §19. Every one was
+verified against the live database, not just reasoned about.
 
-- **Merge is lossy.** Storage keys keep the old uid prefix, so merged stories
-  render with no pictures and no narration after the user was told "nothing was
-  lost". Until re-keying exists, `merge` should refuse rather than complete.
-- **Subscribers get permanently ceiling-locked.** The usage period is never
-  renewed, so after the first renewal a paying customer falls back to the free
-  never-resetting row and eventually cannot generate at all.
+Two behaviours worth knowing, because they are deliberate refusals rather than
+repairs:
 
-These WERE unreachable while the app ran on mocks. The app is on the live
-backend now, so that protection is gone.
+- **`merge` now REFUSES** when it would move real content, because storage
+  re-keying is still unimplemented and a completed merge renders every story
+  with no pictures. `keep_account_only` works and loses nothing (§12a).
+  Re-keying needs the worker's service-role client — it structurally cannot be
+  done from the Edge Function.
+- **A failed character build returns the slot** by being marked `failed`, which
+  the derived count excludes. There is no counter to refund.
 
 ## Next, in order
 
@@ -98,9 +100,7 @@ backend now, so that protection is gone.
    Signing → Automatically manage → Personal Team, ⌘R. Free provisioning is
    enough; no Apple Developer Program needed. See `APPLE_SETUP.md`. This is the
    highest-risk unknown in the product — the Simulator will not answer it.
-4. **Close §15 findings 5–8 and 11** before real money moves. Finding 10 is
-   closed (§18d).
-5. **Reconcile the price table against the first real Gemini invoice**
+4. **Reconcile the price table against the first real Gemini invoice**
    (§14 item 1). Measured quantities are real; the unit prices are researched.
    Do not reprice until this is done.
 

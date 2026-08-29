@@ -250,7 +250,13 @@ to NULL — the guard never fired and every free user could mint unlimited free
 stories. Fixed in `20260826130000`. The SQL reads correctly; only an adversarial
 test found it.
 
-### Still open (not fixed, ranked)
+### Still open (not fixed, ranked) — ALL CLOSED 26 Aug 2026
+
+**Every finding below is now fixed.** 10 in §18d; 5, 6, 7, 8 and 11 in §19.
+The table is kept as written because the reasoning in the right-hand column is
+what makes each fix make sense, and a closed finding with no record of why it
+mattered is how the same bug comes back.
+
 
 | # | Finding | Why it matters |
 |---|---|---|
@@ -261,8 +267,10 @@ test found it.
 | 10 | At-least-once delivery with no "already finished" guard: a crash between settle and `queue.delete` regenerates every image and releases the reservation twice. | Needs `finished_at` short-circuit. |
 | 11 | `createCharacter` discards the client's idempotency key. A retried request creates duplicate characters and burns both budget and a character slot. | One-line fix. |
 
-Findings 5–8 and 10–11 should be closed before any real money or real
-generation runs. None of them are reachable while the app is on mocks.
+Findings 5–8 and 10–11 had to be closed before any real money or real
+generation ran. They are. The "not reachable while the app is on mocks"
+reassurance expired the moment the app moved to the live backend (§18e), which
+is why they were closed immediately afterwards.
 
 ## 16. First live run — what it proved, and what it broke
 
@@ -624,3 +632,96 @@ auth provider is a project security setting, not a deploy.
 Worth recording because both were invisible from the code: the migrations, the
 worker and the queue all work against this project, so "the backend is proven"
 was true of everything except the layer the app actually talks to.
+
+## 19. The rest of the security review, closed
+
+§15's five remaining findings, fixed and verified against the live database on
+26 Aug 2026. Migration `20260826210000_close_security_findings.sql`.
+
+All five share a shape: **the guard existed and did not bind.** None was a
+missing check; each was a check that was subtly the wrong check.
+
+### 5 — one EUR 4.99 top-up, replayed, minted unlimited stories
+
+The reconciler already defended against forged events by re-fetching subscriber
+state from RevenueCat with the secret key. That defence is complete for
+SUBSCRIPTIONS, which are a snapshot: applying the same state twice is
+idempotent. It does nothing for TOP-UPS, which are an increment.
+`confirmsTopup()` asked whether a top-up had **ever** been purchased — and "has
+ever bought one" is not a fact you can safely add three stories to.
+
+Now keyed on the store's own transaction id, in a `topup_grants` table whose
+PRIMARY KEY is the transaction id. The grant is `insert … on conflict do
+nothing` and the stories follow from how many rows were actually inserted, so a
+replay grants zero **no matter what the reconciler gets wrong**. Verified: three
+replays of one transaction id granted 3 stories and wrote 1 row, not 9.
+
+### 6 — a paying customer silently stopped being able to generate
+
+`apply_revenuecat_event` inserted a usage period only when none was open, and
+never touched `period_end`. RevenueCat sends RENEWAL *while the period is still
+open*, so the renewal was a no-op and `period_end` kept the previous cycle's
+date. The moment it passed there was no open paid row, the subscriber fell back
+to the free row — which never resets, because the free tier never renews — and
+quietly stopped being able to make anything while still paying.
+
+A renewal is now detected by `renews_at` advancing past the current period's
+end: that closes the period and opens a fresh one with counters at zero.
+Crucially, an event that does NOT advance `renews_at` changes nothing —
+RevenueCat sends several per cycle, and resetting on each would hand out
+unlimited stories. Both halves verified.
+
+### 7 — merge completed lossily, having promised nothing was lost
+
+The DB side was right: `merge_accounts` moves `child_profiles.parent_id` and
+everything hangs off that. The storage side was not — keys keep the `<uidA>/`
+prefix, and both the bucket policies and `media-sign` match on it. Every merged
+story rendered with no pictures and no narration, straight after the "nothing
+was lost" screen.
+
+Re-keying genuinely cannot be done from the Edge Function: it needs read on A's
+objects and write on B's, and by the time `mergeAccounts` runs only session B's
+JWT exists. Only the worker's service-role client can bridge it. So until that
+exists, **`merge` is refused** when it would move real content, with copy that
+points at `keep_account_only` — which loses nothing, since §12a retains uid A's
+content for 30 days either way. `keep_account_only` and an empty source are
+unaffected.
+
+Refusing is the right trade because the lossy outcome is silent and
+unrecoverable by the user, while the refusal is visible and leaves both
+libraries intact.
+
+### 8 — the global daily spend cap stopped existing past 1000 jobs a day
+
+`globalSpendTodayCents` selected the day's job rows and summed them in
+TypeScript. PostgREST caps a response at 1000 rows and says nothing about it, so
+from the 1001st job the total was "the first 1000 jobs" — an undercount that
+only grows, on precisely the busy day DECISIONS.md §3.3's last backstop exists
+for. The cap was strongest when it was needed least. Summed in the database now,
+where there is no row limit.
+
+### 11 — a retried create minted a second character
+
+Not "the key was discarded" as §15 recorded it: `CreateCharacterRequest` had no
+`idempotencyKey` field at all, unlike `CreateStoryRequest`, so there was nothing
+to discard. Added to the contract, generated once per create-flow attempt and
+stable for its whole life, cleared by `reset()` so the next character is a new
+intent. On the free tier the slot it was burning is the only one the family
+ever gets.
+
+### The camera permission prompt was a dead end
+
+Not a security finding, but the same class of not-actually-binding guard. iOS
+shows the system camera dialog **once, ever**. After a decline,
+`requestPermission()` resolves immediately with `granted: false` and no dialog
+appears — so "Allow camera" did nothing, forever, with nothing on screen saying
+why or what to do instead. The only route back is the Settings app and the user
+was never told.
+
+Now branches on `canAskAgain`: prompt when it can, otherwise open Settings, plus
+a way out of the screen. The rule it violated is a general one — **never render
+a button that cannot do anything.**
+
+Also fixed alongside: `capture()` pushed to `isolation-preview` whether or not
+`takePictureAsync` returned a photo, so a failed shutter landed the user on a
+preview of nothing.
