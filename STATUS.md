@@ -54,9 +54,9 @@ Reader and cover art now come from `media-sign` signed URLs instead of the
 - **Neither run retried.** §2's 15% retry overhead is still an assumption, and
   §16's 503 storms suggest the real figure is bursty rather than flat.
 - **The app has not been driven end to end in the Simulator.** The wiring is
-  written and typechecks; `expo-secure-store` cannot reach the Keychain in the
-  iOS 26 simulator without a signed build, which blocks anonymous sign-in and
-  therefore every authenticated call. See "Running the app" below.
+  written, the signed build works and the shell renders; the only thing left in
+  the way is that anonymous sign-ins are disabled on the Supabase project. See
+  "Running the app" below.
 - Storage per short story is **8.7 MB** (5.2 MB images + 3.5 MB uncompressed WAV
   narration), roughly double the model. Fits the 12 MB bucket cap; AAC needs
   ffmpeg in the worker image.
@@ -71,7 +71,8 @@ Milestone 0 bar: >85% clean isolation on crayon/marker, >60% on pencil, across
 
 ## Open security findings
 
-`DECISIONS.md` §15 has six unfixed items from the review. Two matter before launch:
+`DECISIONS.md` §15 has five unfixed items left — finding 10 was closed in §18d.
+Two matter before launch:
 
 - **Merge is lossy.** Storage keys keep the old uid prefix, so merged stories
   render with no pictures and no narration after the user was told "nothing was
@@ -80,19 +81,28 @@ Milestone 0 bar: >85% clean isolation on crayon/marker, >60% on pencil, across
   renewed, so after the first renewal a paying customer falls back to the free
   never-resetting row and eventually cannot generate at all.
 
-None are reachable while the app runs on mocks.
+These WERE unreachable while the app ran on mocks. The app is on the live
+backend now, so that protection is gone.
 
 ## Next, in order
 
-1. **Get a signed simulator build**, then drive photograph -> character -> story
-   -> read against the live backend. Everything below the UI is proven; this is
-   the last unverified layer.
-2. **Test Vision on a real device.** `open apps/mobile/ios/Papercub.xcworkspace`,
+1. **Enable anonymous sign-ins** (Dashboard -> Authentication -> Sign In /
+   Providers -> Anonymous Sign-Ins). One toggle, ~30 seconds, and it is the only
+   thing standing between the current build and a working app. Nothing else on
+   this list can be verified until it is on.
+2. **Drive photograph -> character -> story -> read** in the Simulator against
+   the live backend. Everything below the UI is proven; this is the last
+   unverified layer, and the first run will find UI-layer bugs the typechecker
+   cannot.
+3. **Test Vision on a real device.** `open apps/mobile/ios/Papercub.xcworkspace`,
    Signing → Automatically manage → Personal Team, ⌘R. Free provisioning is
-   enough; no Apple Developer Program needed. See `APPLE_SETUP.md`.
-3. **Close §15 findings 5–8, 10–11** before real money moves.
-4. Swap `SessionProvider` to B5's real `useSession()` and delete the mock
-   session path (`DECISIONS.md` §13).
+   enough; no Apple Developer Program needed. See `APPLE_SETUP.md`. This is the
+   highest-risk unknown in the product — the Simulator will not answer it.
+4. **Close §15 findings 5–8 and 11** before real money moves. Finding 10 is
+   closed (§18d).
+5. **Reconcile the price table against the first real Gemini invoice**
+   (§14 item 1). Measured quantities are real; the unit prices are researched.
+   Do not reprice until this is done.
 
 ## Running the app
 
