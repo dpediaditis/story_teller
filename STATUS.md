@@ -69,6 +69,15 @@ to embarrass the product, and the one the Simulator will not answer honestly.
 Milestone 0 bar: >85% clean isolation on crayon/marker, >60% on pencil, across
 20+ real children's drawings.
 
+## Narration voices
+
+Six, one free (`DECISIONS.md` §21). **Ivy** is free; Bramble, Pip, Juniper,
+Marlow and Fig are family. The picker is on the story-confirm screen; the gate
+is in `claim_story_quota`, so the padlock is decoration and the SQL is the
+enforcement. Verified live both ways: a free account is refused with
+`entitlement_required`/`reason: voice`, and a family account generated a full
+story narrated by Bramble.
+
 ## Security findings — all closed
 
 `DECISIONS.md` §15's eleven findings are **all fixed**: six in the original

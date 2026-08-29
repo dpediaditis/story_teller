@@ -40,6 +40,9 @@ interface Draft {
   characterType: string | null;
   personalityTraits: string[];
   characterId: string | null;
+  /** Server key for an EXISTING character's cut-out, when the flow started
+   *  from the Characters tab rather than the camera. Signed for display. */
+  characterCutoutKey: string | null;
   theme: StoryTheme | null;
   mood: StoryMood;
   length: StoryLength;
@@ -66,6 +69,7 @@ const initialDraft: Draft = {
   characterType: null,
   personalityTraits: [],
   characterId: null,
+  characterCutoutKey: null,
   theme: null,
   mood: 'adventurous',
   length: 'short',

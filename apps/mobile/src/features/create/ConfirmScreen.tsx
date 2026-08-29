@@ -85,6 +85,7 @@ export function ConfirmScreen() {
         <EyebrowLabel style={{ marginTop: spacing.section }}>READ ALOUD BY</EyebrowLabel>
         <ScrollView
           horizontal
+          style={{ flexGrow: 0 }}
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.voiceRow}
         >
@@ -146,7 +147,14 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 const styles = StyleSheet.create({
-  voiceRow: { gap: spacing.sm, paddingVertical: spacing.sm, paddingRight: spacing.xxl },
+  // alignItems keeps the cards sized to their text; without it the row
+  // inherits stretch and each card grows to the scroll view's full height.
+  voiceRow: {
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingRight: spacing.xxl,
+    alignItems: 'flex-start',
+  },
   voice: {
     paddingHorizontal: spacing.lgPlus,
     paddingVertical: spacing.md,

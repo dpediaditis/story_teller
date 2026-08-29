@@ -62,7 +62,11 @@ export function CharacterDetailScreen({ characterId }: { characterId: string }) 
                 onPress={() =>
                   router.push(
                     `/create/adventure?characterId=${character.id}` +
-                      `&characterName=${encodeURIComponent(character.name)}`,
+                      `&characterName=${encodeURIComponent(character.name)}` +
+                      // So the generating screen can show THEIR drawing. Coming
+                      // in from here skips the capture flow, which is the only
+                      // other place that cut-out is known.
+                      `&cutoutKey=${encodeURIComponent(character.cutoutStorageKey)}`,
                   )
                 }
               />

@@ -32,9 +32,11 @@ const LENGTHS: { value: StoryLength; label: string }[] = [
 export function AdventureScreen({
   characterIdParam,
   characterNameParam,
+  cutoutKeyParam,
 }: {
   characterIdParam?: string;
   characterNameParam?: string;
+  cutoutKeyParam?: string;
 }) {
   const { draft, update } = useCreateFlow();
 
@@ -46,10 +48,11 @@ export function AdventureScreen({
       update({
         characterId: characterIdParam,
         ...(characterNameParam ? { characterName: characterNameParam } : {}),
+        ...(cutoutKeyParam ? { characterCutoutKey: cutoutKeyParam } : {}),
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [characterIdParam, characterNameParam]);
+  }, [characterIdParam, characterNameParam, cutoutKeyParam]);
 
   const name = draft.characterName || 'your character';
 

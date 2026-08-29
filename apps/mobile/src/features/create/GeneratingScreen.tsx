@@ -5,6 +5,7 @@ import { SLO, type JobProgressEvent } from '@papercub/shared';
 import { Screen, Text, Button } from '../../components';
 import { useCreateFlow } from './CreateFlowContext';
 import { StoryWorkshop } from './StoryWorkshop';
+import { useSignedMedia } from '../../lib/api/useSignedMedia';
 import { apiClient, generationStageCopy, GENERATION_STAGE_ORDER } from '../../lib/api';
 import { colour, inkAlpha, spacing } from '../../theme';
 
@@ -43,6 +44,14 @@ export function GeneratingScreen() {
 
   const characterName = draft.characterName || 'your character';
 
+  /* Their drawing, from wherever this flow got it. The capture path has a local
+   * file; entering from the Characters tab has only a server key, which has to
+   * be signed like any other private object. */
+  const { urls } = useSignedMedia([draft.characterCutoutKey]);
+  const cutoutUri =
+    draft.isolation?.cutoutUri ??
+    (draft.characterCutoutKey ? (urls[draft.characterCutoutKey] ?? null) : null);
+
   if (event?.status === 'failed') {
     return (
       <Screen>
@@ -71,7 +80,7 @@ export function GeneratingScreen() {
 
         {/* The book being assembled, driven by the SAME event the list below
             reads. Nothing in it is on a timer — see StoryWorkshop. */}
-        <StoryWorkshop event={event} cutoutUri={draft.isolation?.cutoutUri ?? null} />
+        <StoryWorkshop event={event} cutoutUri={cutoutUri} />
 
         {slow ? (
           <Text variant="body" color={inkAlpha.textBody} style={{ marginTop: spacing.sm }}>
@@ -81,10 +90,22 @@ export function GeneratingScreen() {
         ) : null}
 
         <View style={styles.stageList}>
-          {GENERATION_STAGE_ORDER.filter((s) => s !== 'done').map((stage, i) => {
+          {GENERATION_STAGE_ORDER.filter((s) => s !== 'done').map((stage, i, all) => {
             const done = i < currentIndex;
             const active = i === currentIndex;
             if (!done && !active) return null; // never show a stage the server hasn't reached
+            // Several stages share a copy line (the copy is written for the
+            // child, not for the pipeline), which printed the same sentence
+            // twice in a row. Collapse the repeat — the stage still ran, and
+            // the workshop above is the real progress.
+            const previous = i > 0 ? all[i - 1] : null;
+            if (
+              previous &&
+              generationStageCopy(previous, characterName) ===
+                generationStageCopy(stage, characterName)
+            ) {
+              return null;
+            }
             return (
               <View key={stage} style={styles.stageRow}>
                 <Text variant="label" color={done ? colour.violet : colour.ink}>

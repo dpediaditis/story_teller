@@ -14,6 +14,10 @@ const FEATURES = [
   `${QUOTA.family.charactersTotal} saved characters`,
   'Short, normal and bedtime lengths',
   'Read-aloud narration',
+  // Named, because a locked voice on the confirm screen is one of the routes
+  // into this paywall — landing here with no mention of voices makes the tap
+  // look like it went nowhere.
+  'Five more reading voices',
   'PDF export, for printing and keeping',
 ];
 
