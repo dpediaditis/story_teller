@@ -337,7 +337,10 @@ export async function runStoryGenerate(args: StoryRunArgs): Promise<void> {
   const narrationText = orderedPages.map((p) => p.text).join('\n\n');
   const speech = await providers.speech.synthesise({
     text: narrationText,
-    voiceId: 'papercub_default',
+    // The voice the parent chose, already checked against their tier by
+    // claim_story_quota. The worker does not re-decide entitlement; it reads
+    // what the claim recorded.
+    voiceId: job.voiceId,
     language: job.locale,
   });
   await ledger.recordProviderCall('narrating', speech.usage);
@@ -357,7 +360,7 @@ export async function runStoryGenerate(args: StoryRunArgs): Promise<void> {
 
   await db.insertNarration({
     storyId: job.storyId,
-    voiceId: 'papercub_default',
+    voiceId: job.voiceId,
     provider: speech.usage.provider,
     storageKey: narrationKey,
     durationMs: speech.value.durationMs,

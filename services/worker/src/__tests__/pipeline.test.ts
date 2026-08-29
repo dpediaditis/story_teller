@@ -43,6 +43,7 @@ function storyJob(overrides: Partial<StoryGenerateJobPayload> = {}): StoryGenera
     ageBand: '4_5',
     renderTechnique: 'cutout_rerender',
     locale: 'en-GB',
+    voiceId: 'papercub_default',
     estimatedCostCents: STORY_SHAPE.short.estimatedCostCents,
     modelBundleVersion: 'test',
     enqueuedAt: new Date().toISOString(),

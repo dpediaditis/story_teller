@@ -66,6 +66,8 @@ const ERROR_COPY: Record<string, string> = {
   'error.quota_exceeded.family': "That's all your stories for this period.",
   'error.cost_ceiling_exceeded': "We've hit today's limit — try again shortly.",
   'error.entitlement_required': 'This needs the full plan.',
+  'error.entitlement_required.length': 'Longer stories need the full plan.',
+  'error.entitlement_required.voice': 'That voice needs the full plan.',
   'error.rate_limited': 'Too many tries — take a short break and try again.',
   'error.moderation_blocked.input_image': "Let's try a different drawing.",
   'error.moderation_blocked.input_text': "Let's try a different word.",

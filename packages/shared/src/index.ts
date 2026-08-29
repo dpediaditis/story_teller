@@ -6,4 +6,5 @@ export * from './constants.ts';
 export * from './prompt-safety.ts';
 export * from './errors.ts';
 export * from './storage.ts';
+export * from './voices.ts';
 export type { Database, Json } from './db.ts';

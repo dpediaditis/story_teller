@@ -1,6 +1,13 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
 import type { IsolateResult } from '@papercub/vision-module';
-import type { DrawingSource, StoryLength, StoryMood, StoryTheme } from '@papercub/shared';
+import type {
+  DrawingSource,
+  NarrationVoiceId,
+  StoryLength,
+  StoryMood,
+  StoryTheme,
+} from '@papercub/shared';
+import { DEFAULT_NARRATION_VOICE_ID } from '@papercub/shared';
 
 /**
  * In-memory scratch state for one pass through the create flow (Camera →
@@ -36,6 +43,7 @@ interface Draft {
   theme: StoryTheme | null;
   mood: StoryMood;
   length: StoryLength;
+  voiceId: NarrationVoiceId;
   storyId: string | null;
   jobId: string | null;
 }
@@ -61,6 +69,7 @@ const initialDraft: Draft = {
   theme: null,
   mood: 'adventurous',
   length: 'short',
+  voiceId: DEFAULT_NARRATION_VOICE_ID,
   storyId: null,
   jobId: null,
 };

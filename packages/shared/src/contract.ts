@@ -19,6 +19,7 @@
  */
 
 import { z } from 'zod';
+import { DEFAULT_NARRATION_VOICE_ID, NarrationVoiceId } from './voices.ts';
 import {
   AgeBand, AuthProvider, CharacterAssetKind, CharacterStatus, DrawingSource,
   EntitlementTier, GenerationStage, IsolationMethod, JobStatus, JobType,
@@ -175,7 +176,7 @@ export const NarrationDto = z.object({
   wordTimingsKey: StorageKeySchema.nullable(),
   sentenceLevelOnly: z.boolean(),
   durationMs: z.number().int(),
-  voiceId: z.string(),
+  voiceId: NarrationVoiceId,
   language: z.string(),
 });
 
@@ -398,6 +399,13 @@ export const CreateStoryRequest = z.object({
   theme: StoryTheme,
   mood: StoryMood.default('adventurous'),
   length: StoryLength.default('short'),
+  /**
+   * Narration voice. Optional so an older client keeps working — omitted means
+   * the free voice. A `family`-tier voice from a free account is REFUSED by
+   * claim_story_quota, not silently downgraded: quietly reading the book in a
+   * different voice from the one chosen is worse than saying no.
+   */
+  voiceId: NarrationVoiceId.default(DEFAULT_NARRATION_VOICE_ID),
   /** Client-generated, stable across retries of the same user intent. */
   idempotencyKey: IdempotencyKey,
 });
@@ -628,6 +636,8 @@ export const StoryGenerateJobPayload = JobPayloadBase.extend({
   ageBand: AgeBand,
   renderTechnique: RenderTechnique,
   locale: z.string(),
+  /** Chosen at claim time and already checked against the tier there. */
+  voiceId: NarrationVoiceId.default(DEFAULT_NARRATION_VOICE_ID),
 });
 
 export const PageRegenerateJobPayload = JobPayloadBase.extend({
@@ -639,7 +649,7 @@ export const PageRegenerateJobPayload = JobPayloadBase.extend({
 export const NarrationJobPayload = JobPayloadBase.extend({
   type: z.literal('narration_generate'),
   storyId: Uuid,
-  voiceId: z.string(),
+  voiceId: NarrationVoiceId,
   language: z.string(),
 });
 

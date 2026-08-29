@@ -170,6 +170,7 @@ async function createStory(req: Request, supabase: SupabaseClient<Database>, use
     p_length: body.length,
     p_render_technique: 'cutout_rerender',
     p_model_bundle_version: MODEL_BUNDLE_VERSION,
+    p_voice_id: body.voiceId,
     p_idempotency_key: body.idempotencyKey,
   });
   if (claimError) {
@@ -182,21 +183,46 @@ async function createStory(req: Request, supabase: SupabaseClient<Database>, use
     throw claimError;
   }
 
+  /* `ok`, not `allowed`. claim_story_quota has ALWAYS returned `ok` — every
+   * branch of it, in every migration since 20260826120000 — and this read
+   * `result.allowed`, which is `undefined`, so `!result.allowed` was `true` on
+   * the SUCCESS path too.
+   *
+   * The damage was not "story creation fails". The claim is atomic and had
+   * already consumed the story, reserved the cost, written the story row and
+   * sent the pgmq message by the time it returned. So the book generated
+   * normally, in the background, while the parent was told
+   * `402 quota_exceeded` — losing their one free story to a screen saying they
+   * had none left. The giveaway in the logs is
+   * `story quota blocked: undefined`: a block with nothing that blocked it. */
   const result = claim as {
-    allowed: boolean;
+    ok: boolean;
     idempotentReplay?: boolean;
     storyId?: string;
     jobId?: string;
     blockedBy?: string;
+    reason?: string;
   };
 
-  if (!result.allowed) {
+  if (!result.ok) {
     const { quota: freshQuota } = await loadEntitlementAndQuota(supabase, userId);
     if (result.blockedBy === 'cost_ceiling_reached') {
       throw new ApiFailure('cost_ceiling_exceeded', {
         message: 'monthly cost ceiling reached',
         copyKey: 'error.cost_ceiling_exceeded',
         details: { quota: freshQuota },
+      });
+    }
+    if (result.blockedBy === 'entitlement_required') {
+      // The claim distinguishes WHICH entitlement, so the paywall can say what
+      // it is actually offering rather than a generic "needs the full plan".
+      throw new ApiFailure('entitlement_required', {
+        message: `story blocked: ${result.reason ?? 'length'} needs the full plan`,
+        copyKey:
+          result.reason === 'voice'
+            ? 'error.entitlement_required.voice'
+            : 'error.entitlement_required.length',
+        details: { quota: freshQuota, reason: result.reason ?? 'length' },
       });
     }
     throw new ApiFailure('quota_exceeded', {

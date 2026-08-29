@@ -263,6 +263,11 @@ export function createOpenAiProviders(opts: OpenAiOptions): {
    */
   const OPENAI_VOICE_IDS: Record<string, string> = {
     papercub_default: 'shimmer',
+    papercub_bramble: 'sage',
+    papercub_pip: 'nova',
+    papercub_juniper: 'coral',
+    papercub_marlow: 'onyx',
+    papercub_fig: 'echo',
   };
 
   function openAiVoiceName(voiceId: string): string {

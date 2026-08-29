@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import type { StoryDetailDto } from '@papercub/shared';
+import { DEFAULT_NARRATION_VOICE_ID, NARRATION_VOICES } from '@papercub/shared';
 import { Screen, Text, Button } from '../../components';
 import { useSignedMedia } from '../../lib/api/useSignedMedia';
 import { apiClient } from '../../lib/api';
@@ -149,7 +150,16 @@ export function ReaderScreen({ storyId }: { storyId: string }) {
           </View>
 
           <View style={styles.metaRow}>
-            <Text variant="label" color={inkAlpha.textLabel}>Voice · {story.narration?.voiceId ?? 'Ivy'}</Text>
+            {/* The DISPLAY name, never the id. This rendered
+                "Voice · papercub_default" — an internal identifier on a screen
+                a child looks at, and against CLAUDE.md's rule that the app owns
+                all copy. */}
+            <Text variant="label" color={inkAlpha.textLabel}>
+              Voice ·{' '}
+              {story.narration
+                ? NARRATION_VOICES[story.narration.voiceId].displayName
+                : NARRATION_VOICES[DEFAULT_NARRATION_VOICE_ID].displayName}
+            </Text>
             <Text variant="label" color={inkAlpha.textLabel}>Speed · 0.9×</Text>
             <Text variant="label" color={inkAlpha.textLabel}>Auto-turn</Text>
           </View>

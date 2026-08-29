@@ -769,3 +769,106 @@ All of them were the same shape: **a failure with nothing on screen.** A silent
 could not act. None was a wrong calculation; each was a missing way for the user
 to find out. The mock could not surface any of them because the mock cannot
 fail.
+
+## 21. Narration voices, and a 402 that was consuming free stories
+
+### The voices
+
+One voice existed: `papercub_default` -> Gemini `sulafat`. Six now, in
+`packages/shared/src/voices.ts`, with a tier on each:
+
+| Voice | Reads like | Tier |
+|---|---|---|
+| **Ivy** | Warm and steady | **free** |
+| Bramble | Gentle, for winding down | family |
+| Pip | Bright and playful | family |
+| Juniper | Soft and hushed | family |
+| Marlow | Smooth, an old-fashioned storyteller | family |
+| Fig | Quick and funny | family |
+
+Exactly ONE free voice, deliberately: the free tier is a single short story
+(§1), so a picker on it would be choice without consequence, and the premium
+voices are worth more as something a family unlocks than as something they
+sampled once.
+
+The ids are ours, never a provider's — a narration is cached forever, so the id
+on `narrations.voice_id` has to outlive any vendor. The adapters map them
+(`GEMINI_VOICE_IDS`, `OPENAI_VOICE_IDS`); `packages/shared` still does not know
+a provider exists.
+
+**Enforced in SQL, not TypeScript.** `claim_story_quota` refuses a family voice
+on a free tier the same way it already refuses a bedtime length, so the picker's
+padlock is decoration and the gate is unbypassable (§8: the client never asserts
+entitlement). Refused, not silently downgraded — a book read in a voice the
+parent did not choose is worse than a clear no.
+
+The reader also stopped printing `Voice · papercub_default`: an internal id on a
+screen a child looks at, and against CLAUDE.md's rule that the app owns all copy.
+
+### The bug found underneath it
+
+`supabase/functions/stories` read `result.allowed` from `claim_story_quota`.
+That function has ALWAYS returned `ok` — every branch, in every migration. So
+`!result.allowed` was `true` on the SUCCESS path too, and **every story creation
+returned `402 quota_exceeded`**.
+
+What makes it bad rather than merely broken: the claim is atomic and had already
+consumed the story, reserved the cost, written the story row and sent the pgmq
+message before returning. So the book generated perfectly, in the background,
+while the parent was told they had no stories left — losing their one free story
+to a screen saying they had none. Live signature: `story quota blocked:
+undefined`, a block with nothing that blocked it.
+
+This is also a correction to §20. That story WAS triggered by tapping the app,
+and it did generate — but the app would have shown a quota error at that moment.
+It was not noticed because the run was verified in the database rather than on
+the screen. **Check the screen, not just the row.**
+
+### And a regression I introduced and caught within minutes
+
+Adding the voice gate meant rebuilding `claim_story_quota`, and the body was
+rebuilt from 20260826120000 — which predates the free-story bypass fix in
+20260826130000. It silently reverted it. `coalesce(topup_stories_remaining, 0)`
+INSIDE the select looks like a guard and is not one: when no row exists at all,
+`select ... into` sets the variables to NULL regardless, and `true and NULL` is
+NULL, so the quota check never fires. A free account at its limit claimed two
+more stories before it was caught.
+
+Two things came out of that:
+
+- `claim_story_quota` now has exactly ONE definition in the repo, in
+  `20260829152616`, with a header saying to start from THAT body. The 8-argument
+  overload is dropped, so there is no second body to resolve to either.
+- The lesson generalises: when rebuilding a security-definer function, start
+  from the LATEST definition — or better, from `pg_get_functiondef` on the live
+  database — not from whichever migration reads most completely.
+
+## 22. The generating screen shows the book being made
+
+~100 seconds is a long time for a five-year-old, and the screen was a text
+checklist. It is now a paper workshop: their OWN cut-out sits on a kraft desk
+while the book is assembled beside it — a sheet slides in and ink fills it, the
+cover flips up, and a page flutters onto a growing stack.
+
+The constraint that shaped it is the existing one from enums.ts: "Never invent
+progress." So nothing in the scene is on a timer pretending to be work.
+
+```
+the sheet appears   when the job reaches `writing_story`
+the cover flips up  when `coverReady` arrives — the real gate-4 pass
+a page lands        once per index in `readablePageIndexes`, one for one
+```
+
+**The stack of pages IS the progress bar**, and it cannot show a page the server
+has not finished — which is why there is still no percentage. The pile is the
+honest version of one.
+
+The character is the child's own drawing, the file the flow just uploaded, and
+it hops each time a real page lands. Built on React Native's own `Animated`
+rather than Reanimated: it is all transform and opacity, which `useNativeDriver`
+already runs off the JS thread, and Reanimated 4 would need the worklets babel
+plugin and a native rebuild to earn its keep. Motion is skipped entirely under
+`prefers-reduced-motion` — the same elements appear, they just do not move.
+
+The "start reading page 1 while page 5 renders" button stays exactly where it
+was. It remains the strongest thing on the screen.

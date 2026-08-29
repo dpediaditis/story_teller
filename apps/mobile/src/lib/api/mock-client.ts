@@ -140,7 +140,7 @@ const stories: StoryDetailDto[] = [
       wordTimingsKey: null,
       sentenceLevelOnly: true,
       durationMs: 92_000,
-      voiceId: 'ivy',
+      voiceId: 'papercub_default',
       language: 'en',
     },
     activeJob: null,
@@ -174,7 +174,7 @@ const stories: StoryDetailDto[] = [
       wordTimingsKey: null,
       sentenceLevelOnly: true,
       durationMs: 140_000,
-      voiceId: 'ivy',
+      voiceId: 'papercub_default',
       language: 'en',
     },
     activeJob: null,
@@ -578,7 +578,7 @@ export const mockApiClient: ApiClient = {
             wordTimingsKey: null,
             sentenceLevelOnly: true,
             durationMs: shape.pageCount * 15_000,
-            voiceId: 'ivy',
+            voiceId: 'papercub_default',
             language: 'en',
           };
           story.activeJob = null;

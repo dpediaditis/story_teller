@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
-import { STORY_SHAPE } from '@papercub/shared';
-import { Screen, Text, TopBar, Button } from '../../components';
+import { NARRATION_VOICE_LIST, STORY_SHAPE, isVoiceAllowedForTier } from '@papercub/shared';
+import { Screen, Text, TopBar, Button, EyebrowLabel } from '../../components';
 import { useCreateFlow } from './CreateFlowContext';
 import { useSession } from '../session/SessionProvider';
 import { apiClient, ApiCallError, errorCopy } from '../../lib/api';
@@ -26,6 +26,8 @@ export function ConfirmScreen() {
 
   const shape = STORY_SHAPE[draft.length];
   const isFreeStory = session?.quota.freeTierConsumed === false && session.entitlement.tier === 'free';
+  // Straight from the server's session — the client never decides this.
+  const tier = session?.entitlement.tier === 'family' ? 'family' : 'free';
 
   async function makeStory() {
     if (!draft.characterId || !draft.theme) return;
@@ -33,6 +35,7 @@ export function ConfirmScreen() {
     setError(null);
     try {
       const res = await apiClient.call('createStory', {
+        voiceId: draft.voiceId,
         childId: session?.children[0]?.id ?? '',
         characters: [{ characterId: draft.characterId, role: 'lead' }],
         theme: draft.theme,
@@ -75,6 +78,47 @@ export function ConfirmScreen() {
           <Row label="Usually takes" value="About a minute" />
         </View>
 
+        {/* VOICE. The lock is drawn from the shared catalogue, but it is not
+            what enforces anything — claim_story_quota re-checks the tier in SQL
+            and refuses, so a client that ignored this could still not get a
+            premium voice (DECISIONS.md §8). */}
+        <EyebrowLabel style={{ marginTop: spacing.section }}>READ ALOUD BY</EyebrowLabel>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.voiceRow}
+        >
+          {NARRATION_VOICE_LIST.map((voice) => {
+            const unlocked = isVoiceAllowedForTier(voice.id, tier);
+            const selected = draft.voiceId === voice.id;
+            return (
+              <Pressable
+                key={voice.id}
+                onPress={() =>
+                  unlocked
+                    ? update({ voiceId: voice.id })
+                    : // Locked voices are a reason to show the paywall, not a
+                      // dead tap. The story config survives — the draft is
+                      // untouched, so coming back lands here unchanged.
+                      router.push('/paywall')
+                }
+                style={[styles.voice, selected && styles.voiceSelected]}
+              >
+                <Text variant="label" color={selected ? colour.paperElevated : colour.ink}>
+                  {voice.displayName}
+                  {unlocked ? '' : ' ·'}
+                </Text>
+                <Text
+                  variant="captionMono"
+                  color={selected ? 'rgba(246,241,231,.7)' : inkAlpha.textLabel}
+                >
+                  {unlocked ? voice.description : 'Full plan'}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
         {isFreeStory ? (
           <Text variant="body" color={inkAlpha.textBody} style={{ marginTop: spacing.lgPlus }}>
             This is your free story. Nothing to pay, nothing to cancel.
@@ -102,6 +146,18 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 const styles = StyleSheet.create({
+  voiceRow: { gap: spacing.sm, paddingVertical: spacing.sm, paddingRight: spacing.xxl },
+  voice: {
+    paddingHorizontal: spacing.lgPlus,
+    paddingVertical: spacing.md,
+    borderRadius: radius.card,
+    borderWidth: 1,
+    borderColor: inkAlpha.border,
+    backgroundColor: colour.paperCard,
+    minWidth: 132,
+    gap: 2,
+  },
+  voiceSelected: { backgroundColor: colour.ink, borderColor: colour.ink },
   body: { flex: 1, padding: spacing.xxl },
   card: { backgroundColor: colour.paperCard, borderRadius: radius.cardLg, padding: spacing.huge, marginTop: spacing.section, gap: spacing.sm },
   row: { flexDirection: 'row', justifyContent: 'space-between' },

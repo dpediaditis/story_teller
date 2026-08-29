@@ -412,7 +412,13 @@ function pcmToWav(pcm: Uint8Array, sampleRate = PCM_SAMPLE_RATE): Uint8Array {
  * with nothing recording that it happened.
  */
 const GEMINI_VOICE_IDS: Record<string, string> = {
-  papercub_default: 'sulafat',
+  // Google's own descriptors, chosen for how a picture book should sound.
+  papercub_default: 'sulafat', // Warm      — Ivy, the free voice
+  papercub_bramble: 'vindemiatrix', // Gentle    — Bramble
+  papercub_pip: 'leda', // Youthful  — Pip
+  papercub_juniper: 'enceladus', // Breathy   — Juniper
+  papercub_marlow: 'algieba', // Smooth    — Marlow
+  papercub_fig: 'puck', // Upbeat    — Fig
 };
 
 function geminiVoiceName(voiceId: string): string {

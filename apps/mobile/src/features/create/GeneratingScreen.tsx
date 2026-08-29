@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import { SLO, type JobProgressEvent } from '@papercub/shared';
 import { Screen, Text, Button } from '../../components';
 import { useCreateFlow } from './CreateFlowContext';
+import { StoryWorkshop } from './StoryWorkshop';
 import { apiClient, generationStageCopy, GENERATION_STAGE_ORDER } from '../../lib/api';
 import { colour, inkAlpha, spacing } from '../../theme';
 
@@ -65,8 +66,12 @@ export function GeneratingScreen() {
 
   return (
     <Screen>
-      <View style={styles.body}>
+      <ScrollView contentContainerStyle={styles.body}>
         <Text variant="sectionHeading">Making {characterName}'s book.</Text>
+
+        {/* The book being assembled, driven by the SAME event the list below
+            reads. Nothing in it is on a timer — see StoryWorkshop. */}
+        <StoryWorkshop event={event} cutoutUri={draft.isolation?.cutoutUri ?? null} />
 
         {slow ? (
           <Text variant="body" color={inkAlpha.textBody} style={{ marginTop: spacing.sm }}>
@@ -98,7 +103,7 @@ export function GeneratingScreen() {
             {readable.length === 1 ? 'Page 1 is' : `Pages 1–${readable.length} are`} already readable.
           </Text>
         ) : null}
-      </View>
+      </ScrollView>
 
       <View style={styles.footer}>
         {readable.length > 0 ? (
@@ -120,7 +125,7 @@ export function GeneratingScreen() {
 }
 
 const styles = StyleSheet.create({
-  body: { flex: 1, padding: spacing.xxl },
+  body: { padding: spacing.xxl, paddingBottom: spacing.section },
   stageList: { marginTop: spacing.section, gap: spacing.md },
   stageRow: { flexDirection: 'row', gap: spacing.md, alignItems: 'center' },
   footer: { padding: spacing.xxl },
