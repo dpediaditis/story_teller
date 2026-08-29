@@ -11,6 +11,16 @@ import type { StoryLength, StoryMood, StoryTheme } from '@papercub/shared';
  */
 interface Draft {
   childId: string | null;
+  /**
+   * One key per create-flow attempt, generated when the flow starts and stable
+   * for its whole life — that is what makes it an idempotency key rather than a
+   * request id. Regenerating it per call would defeat the point
+   * (DECISIONS.md §15 finding 11): a retried create would mint a second
+   * character and burn a second slot, and on the free tier that is the only
+   * slot the family gets. Cleared by `reset()`, so the NEXT character is a
+   * genuinely new intent and gets its own key.
+   */
+  idempotencyKey: string;
   capturedImageUri: string | null;
   isolation: IsolateResult | null;
   manualCropUsed: boolean;
@@ -25,8 +35,14 @@ interface Draft {
   jobId: string | null;
 }
 
+function newIdempotencyKey(): string {
+  // IdempotencyKey is min 8 / max 128 chars in the contract.
+  return `char-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
 const initialDraft: Draft = {
   childId: null,
+  idempotencyKey: newIdempotencyKey(),
   capturedImageUri: null,
   isolation: null,
   manualCropUsed: false,
@@ -55,7 +71,9 @@ export function CreateFlowProvider({ children }: { children: ReactNode }) {
     () => ({
       draft,
       update: (patch) => setDraft((d) => ({ ...d, ...patch })),
-      reset: () => setDraft(initialDraft),
+      // A fresh key too: reset() means "that character is done, start another",
+      // which is a new intent and must not reuse the previous key.
+      reset: () => setDraft({ ...initialDraft, idempotencyKey: newIdempotencyKey() }),
     }),
     [draft],
   );

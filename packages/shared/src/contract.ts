@@ -320,6 +320,15 @@ export const CreateCharacterRequest = z.object({
   }),
   /** Extracted on-device from the cut-out. */
   palette: z.array(HexColour).max(8).default([]),
+  /**
+   * Client-generated, stable across retries of the same user intent — exactly
+   * as CreateStoryRequest. DECISIONS.md §15 finding 11: this field did not
+   * exist, so `createCharacter` had nothing to honour and minted a fresh uuid
+   * per request. A retried create (a flaky network on the one screen a parent
+   * will retry) made a SECOND character, burning both a character slot and the
+   * build budget — and on the free tier the slot is the only one they get.
+   */
+  idempotencyKey: IdempotencyKey,
 });
 export const CreateCharacterResponse = z.object({
   character: CharacterDto,

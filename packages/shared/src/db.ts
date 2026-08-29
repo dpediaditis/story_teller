@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.17"
+    PostgrestVersion: "14.5"
   }
   graphql_public: {
     Tables: {
@@ -847,6 +847,38 @@ export type Database = {
           },
         ]
       }
+      topup_grants: {
+        Row: {
+          granted_at: string
+          parent_id: string
+          product_id: Database["public"]["Enums"]["product_id"]
+          stories_granted: number
+          transaction_id: string
+        }
+        Insert: {
+          granted_at?: string
+          parent_id: string
+          product_id: Database["public"]["Enums"]["product_id"]
+          stories_granted: number
+          transaction_id: string
+        }
+        Update: {
+          granted_at?: string
+          parent_id?: string
+          product_id?: Database["public"]["Enums"]["product_id"]
+          stories_granted?: number
+          transaction_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "topup_grants_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "parent_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       usage_records: {
         Row: {
           characters_used: number
@@ -998,8 +1030,9 @@ export type Database = {
           p_revenuecat_app_user_id: string
           p_status: Database["public"]["Enums"]["subscription_status"]
           p_tier: Database["public"]["Enums"]["entitlement_tier"]
+          p_topup_transaction_ids?: string[]
         }
-        Returns: undefined
+        Returns: Json
       }
       claim_character_build: {
         Args: {
@@ -1032,6 +1065,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      global_spend_today_cents: { Args: never; Returns: number }
       merge_accounts: {
         Args: {
           p_source_parent_id: string

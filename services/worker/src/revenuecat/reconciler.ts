@@ -61,6 +61,8 @@ export interface ApplyEntitlementArgs {
   revenuecatAppUserId: string;
   environment: StoreEnvironment;
   isTopup: boolean;
+  /** Store transaction ids for confirmed top-ups. Only unseen ones grant. */
+  topupTransactionIds: string[];
 }
 
 /* ── The RevenueCat REST client ───────────────────────────────────────── */
@@ -161,7 +163,7 @@ export function mapSubscriberToEntitlement(
   appUserId: string,
   snapshot: RevenueCatSubscriber,
   environment: StoreEnvironment,
-): Omit<ApplyEntitlementArgs, 'isTopup'> | null {
+): Omit<ApplyEntitlementArgs, 'isTopup' | 'topupTransactionIds'> | null {
   const subs = snapshot.subscriber?.subscriptions ?? {};
   const now = Date.now();
 
@@ -216,13 +218,29 @@ export function mapSubscriberToEntitlement(
 }
 
 /**
- * Does the fetched subscriber state actually contain the top-up purchase this
- * inbox row claims? A top-up is only granted when RevenueCat itself confirms
- * the transaction — never on the strength of the stored payload's event type.
+ * WHICH top-up purchases RevenueCat confirms — not merely whether any exist.
+ *
+ * DECISIONS.md §15 finding 5: this used to return a boolean, so replaying one
+ * genuine NON_RENEWING_PURCHASE event granted three more stories every time it
+ * arrived. A subscription is a snapshot and re-applying it is idempotent; a
+ * top-up is an INCREMENT, and "has ever bought one" is not a fact you can
+ * safely increment on.
+ *
+ * The store's own transaction ids go to `apply_revenuecat_event`, which grants
+ * only the ones it has not seen — enforced by a primary key on
+ * `topup_grants.transaction_id`, so a replay grants exactly zero regardless of
+ * what this function or the reconciler get wrong.
  */
-export function confirmsTopup(snapshot: RevenueCatSubscriber): boolean {
+export function confirmedTopupTransactionIds(snapshot: RevenueCatSubscriber): string[] {
   const purchases = snapshot.subscriber?.non_subscriptions?.[TOPUP_PRODUCT] ?? [];
-  return purchases.length > 0;
+  return purchases
+    .map((p) => p.id)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0);
+}
+
+/** Kept as a thin predicate over the ids above, for the event-type check. */
+export function confirmsTopup(snapshot: RevenueCatSubscriber): boolean {
+  return confirmedTopupTransactionIds(snapshot).length > 0;
 }
 
 /* ── The reconciler ───────────────────────────────────────────────────── */
@@ -275,7 +293,8 @@ export async function reconcileOnce(opts: ReconcilerOptions): Promise<ReconcileR
       continue;
     }
 
-    const isTopup = confirmsTopup(snapshot) && row.eventType === 'NON_RENEWING_PURCHASE';
+    const topupTransactionIds = confirmedTopupTransactionIds(snapshot);
+    const isTopup = topupTransactionIds.length > 0 && row.eventType === 'NON_RENEWING_PURCHASE';
 
     const entitlement = mapSubscriberToEntitlement(
       row.appUserId,
@@ -313,6 +332,10 @@ export async function reconcileOnce(opts: ReconcilerOptions): Promise<ReconcileR
           }),
           productId: TOPUP_PRODUCT,
           isTopup: true,
+          // The database decides how many of these are new. Sending the whole
+          // confirmed set every pass is deliberate: it is self-healing if a
+          // previous pass died between claiming the row and granting.
+          topupTransactionIds,
         });
         result.processed += 1;
       } catch (err) {
@@ -331,7 +354,7 @@ export async function reconcileOnce(opts: ReconcilerOptions): Promise<ReconcileR
     }
 
     try {
-      await store.applyEntitlement({ ...entitlement!, isTopup: false });
+      await store.applyEntitlement({ ...entitlement!, isTopup: false, topupTransactionIds: [] });
       await store.markProcessed(row.id);
       result.processed += 1;
       logger.info('revenuecat entitlement applied', {

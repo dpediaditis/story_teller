@@ -9,7 +9,12 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { silentLogger } from '../logger';
-import { confirmsTopup, mapSubscriberToEntitlement, reconcileOnce } from '../revenuecat/reconciler';
+import {
+  confirmedTopupTransactionIds,
+  confirmsTopup,
+  mapSubscriberToEntitlement,
+  reconcileOnce,
+} from '../revenuecat/reconciler';
 import type {
   ApplyEntitlementArgs,
   EntitlementStore,
@@ -222,6 +227,44 @@ describe('top-ups are granted at most once', () => {
   it('grants a top-up only when RevenueCat itself confirms the purchase', () => {
     expect(confirmsTopup(topupSnapshot)).toBe(true);
     expect(confirmsTopup(activeSubscriber())).toBe(false);
+  });
+
+  /**
+   * DECISIONS.md §15 finding 5. The old code asked only whether a top-up had
+   * EVER been purchased, so replaying one genuine event granted +3 stories each
+   * time — one EUR 4.99 purchase, unlimited stories. The store's transaction
+   * ids now go to the database, which grants only the unseen ones behind a
+   * primary key on topup_grants.transaction_id.
+   */
+  it('passes the store transaction ids so a replay can grant nothing', async () => {
+    const s = fakeStore([row({ eventType: 'NON_RENEWING_PURCHASE' })]);
+    const client = fakeClient(topupSnapshot);
+
+    await reconcileOnce({ store: s.store, client, logger: silentLogger });
+
+    expect(s.applied[0]!.isTopup).toBe(true);
+    expect(s.applied[0]!.topupTransactionIds).toEqual(['txn-1']);
+  });
+
+  it('reports every confirmed transaction id, not just that one exists', () => {
+    expect(confirmedTopupTransactionIds(topupSnapshot)).toEqual(['txn-1']);
+    expect(confirmedTopupTransactionIds(activeSubscriber())).toEqual([]);
+    // An entry with no id cannot be tracked, so it must not be claimed as one.
+    expect(
+      confirmedTopupTransactionIds({
+        subscriber: { non_subscriptions: { papercub_topup_3: [{ purchase_date: 'x' }] } },
+      }),
+    ).toEqual([]);
+  });
+
+  it('sends no transaction ids on a plain subscription event', async () => {
+    const s = fakeStore([row({ eventType: 'RENEWAL' })]);
+    const client = fakeClient(activeSubscriber());
+
+    await reconcileOnce({ store: s.store, client, logger: silentLogger });
+
+    expect(s.applied[0]!.isTopup).toBe(false);
+    expect(s.applied[0]!.topupTransactionIds).toEqual([]);
   });
 
   it('does not grant a top-up on payload event type alone', async () => {

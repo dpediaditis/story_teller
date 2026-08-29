@@ -100,6 +100,7 @@ export function createEntitlementStore(client: ServiceClient): EntitlementStore 
         p_revenuecat_app_user_id: args.revenuecatAppUserId,
         p_environment: args.environment,
         p_is_topup: args.isTopup,
+        p_topup_transaction_ids: args.topupTransactionIds ?? [],
       });
       if (error) throw new Error(`apply_revenuecat_event failed: ${error.message}`);
     },

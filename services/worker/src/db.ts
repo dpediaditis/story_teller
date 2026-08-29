@@ -93,16 +93,15 @@ export function createWorkerDb(client: ServiceClient): WorkerDb {
       // .cost_cents is the per-job measured total maintained by record_cost, so
       // this is real spend, not an estimate — which is the whole point of the
       // cap (DECISIONS.md §3.3).
-      const since = new Date();
-      since.setUTCHours(0, 0, 0, 0);
-
-      const { data, error } = await client
-        .from('generation_jobs')
-        .select('cost_cents')
-        .gte('created_at', since.toISOString());
-
-      if (error) throw new Error(`globalSpendTodayCents failed: ${error.message}`);
-      return (data ?? []).reduce((sum, row) => sum + (row.cost_cents ?? 0), 0);
+      //
+      // Summed in the DATABASE. This used to select the rows and add them up
+      // here, and PostgREST silently caps a response at 1000 rows — so from the
+      // 1001st job of the day the total was "the first 1000 jobs" and the cap
+      // stopped binding, on exactly the busy day it exists for
+      // (DECISIONS.md §15 finding 8).
+      const { data, error } = await rpc('global_spend_today_cents', {});
+      if (error) throw new Error(`global_spend_today_cents failed: ${error.message}`);
+      return Number(data ?? 0);
     },
 
     async recordModeration(req: ModerationEventRecord) {

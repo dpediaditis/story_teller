@@ -46,6 +46,8 @@ export function NameCharacterScreen() {
     try {
       const res = await apiClient.call('createCharacter', {
         childId,
+        // Stable for this create-flow attempt — see CreateFlowContext.
+        idempotencyKey: draft.idempotencyKey,
         name: check.value,
         characterType: type,
         personalityTraits: traits,

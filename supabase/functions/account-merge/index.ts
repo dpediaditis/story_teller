@@ -130,6 +130,50 @@ Deno.serve(
         throw new ApiFailure('conflict', { message: 'cannot merge an account into itself', copyKey: 'error.conflict' });
       }
 
+      /* DECISIONS.md §15 finding 7 — REFUSE rather than complete lossily.
+       *
+       * `merge_accounts` moves child_profiles.parent_id from A to B, and every
+       * row hangs off that so the DATABASE side is correct. The storage objects
+       * are not: their keys keep the `<uidA>/` prefix, and both the bucket
+       * policies and `media-sign` match on the uid prefix. So after a "merge"
+       * the rows are B's and the files are unreachable — every merged story
+       * renders with no pictures and no narration, immediately after the user
+       * was told "nothing was lost". That is worse than not merging, and it is
+       * not recoverable by the user.
+       *
+       * Re-keying cannot be done from here (see the KNOWN GAPS note at the top
+       * of this file): it needs read on A's objects and write on B's, and by
+       * this point only session B's JWT exists. Until the worker does it, a
+       * merge that would move real content is refused.
+       *
+       * `keep_account_only` is unaffected — nothing moves, so nothing breaks.
+       * A source with no content is also allowed: there is nothing to lose.
+       *
+       * The counts come from the SIGNED token, written by session A while it
+       * could still read its own rows. Session B cannot read A's rows at all,
+       * which is why they have to.
+       */
+      const sourceContentCount = payload.characters + payload.stories;
+      if (strategy === 'merge' && sourceContentCount > 0) {
+        throw new ApiFailure('conflict', {
+          message:
+            `refusing to merge ${payload.characters} character(s) and ` +
+            `${payload.stories} story(ies): storage objects would keep the ` +
+            `source uid prefix and become unreadable. Storage re-keying is not ` +
+            `implemented (DECISIONS.md §15 finding 7).`,
+          copyKey: 'error.merge_unavailable',
+          retryable: false,
+          details: {
+            strategy: 'merge',
+            sourceCharacters: payload.characters,
+            sourceStories: payload.stories,
+            // The other strategy still works and loses nothing: uid A's content
+            // is RETAINED for RETENTION_DAYS.orphanedAnonymousContent (§12a).
+            availableStrategies: ['keep_account_only'],
+          },
+        });
+      }
+
       const { error: mergeError } = await supabase.rpc('merge_accounts', {
         p_source_parent_id: payload.sourceParentId,
         p_target_parent_id: userId,

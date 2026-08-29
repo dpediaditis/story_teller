@@ -76,6 +76,16 @@ const ERROR_COPY: Record<string, string> = {
   'error.not_found': "We couldn't find that.",
   'error.validation_failed': "Something wasn't quite right — let's try again.",
   'error.internal': "That one didn't finish.",
+  // Merge is refused while storage re-keying is unimplemented (DECISIONS.md
+  // §15 finding 7). The copy offers the strategy that DOES work rather than
+  // reading as a dead end — nothing is deleted either way (§12a).
+  'error.merge_unavailable':
+    "We can't combine these two libraries yet. You can keep this account's library — the other one stays safe on this device.",
+  'error.merge_token_invalid': "That took too long — let's try signing in again.",
+  'error.forbidden': "That isn't available on this account.",
+  'error.conflict': "That didn't line up — let's try again.",
+  'error.unauthenticated': 'Signing you back in…',
+  'error.quota_exceeded.character': 'That needs the full plan.',
 };
 
 export function errorCopy(copyKey: string | undefined): string {

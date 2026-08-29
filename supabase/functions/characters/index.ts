@@ -334,16 +334,14 @@ async function createCharacter(
     // generation_jobs is SELECT-only for `authenticated` — which is why this
     // path could not work at all before that migration existed.
     //
-    // §15 finding 11 is NOT closed here. The claim function honours an
-    // idempotency key, but `CreateCharacterRequest` has no field to carry one —
-    // unlike CreateStoryRequest — so there is nothing to pass but a fresh uuid,
-    // and a retried request still mints a second character. Closing it is a
-    // contract change (add `idempotencyKey` to CreateCharacterRequest) plus a
-    // client change, not a fix that belongs in this function alone.
+    // The CLIENT's key, honoured (DECISIONS.md §15 finding 11).
+    // claim_character_build returns the existing job for a key it has already
+    // seen, so a retried create no longer mints a second character and burns a
+    // second slot — which on the free tier is the only slot there is.
     const { data: claim, error: claimError } = await supabase.rpc('claim_character_build', {
       p_character_id: characterId,
       p_model_bundle_version: MODEL_BUNDLE_VERSION,
-      p_idempotency_key: crypto.randomUUID(),
+      p_idempotency_key: body.idempotencyKey,
     });
     if (claimError) throw claimError;
 

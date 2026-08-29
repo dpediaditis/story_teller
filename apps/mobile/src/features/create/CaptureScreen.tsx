@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { router } from 'expo-router';
 import { Screen, Text, EyebrowLabel } from '../../components';
@@ -17,15 +17,26 @@ export function CaptureScreen() {
   const cameraRef = useRef<CameraView>(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [capturing, setCapturing] = useState(false);
+  const [captureFailed, setCaptureFailed] = useState(false);
   const { update } = useCreateFlow();
 
   async function capture() {
     if (!cameraRef.current) return;
     setCapturing(true);
+    setCaptureFailed(false);
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.8, skipProcessing: true });
-      if (photo) update({ capturedImageUri: photo.uri });
+      // Only advance if there is actually a photo. This used to push to
+      // isolation-preview unconditionally, so a failed shutter landed the user
+      // on a preview of nothing with no way to tell what had gone wrong.
+      if (!photo?.uri) {
+        setCaptureFailed(true);
+        return;
+      }
+      update({ capturedImageUri: photo.uri });
       router.push('/create/isolation-preview');
+    } catch {
+      setCaptureFailed(true);
     } finally {
       setCapturing(false);
     }
@@ -34,14 +45,37 @@ export function CaptureScreen() {
   if (!permission) return <Screen />;
 
   if (!permission.granted) {
+    /* iOS shows the system camera prompt ONCE, ever. After a decline,
+     * `requestPermission()` resolves immediately with granted:false and no
+     * dialog appears — so the "Allow camera" button here was dead forever, with
+     * nothing on screen to say why or what to do instead. The only route back
+     * is the Settings app, and the user has to be told that.
+     *
+     * `canAskAgain` is what distinguishes the two states. Never show a button
+     * that cannot do anything. */
+    const canPrompt = permission.canAskAgain;
+
     return (
       <Screen background={colour.ink}>
         <View style={styles.permissionPrompt}>
           <Text variant="body" color={colour.paperElevated} style={{ textAlign: 'center' }}>
-            Camera access is needed to photograph the drawing.
+            {canPrompt
+              ? 'Camera access is needed to photograph the drawing.'
+              : 'Papercub needs camera access to photograph the drawing. You can turn it on in Settings.'}
           </Text>
-          <Pressable style={styles.allowBtn} onPress={requestPermission}>
-            <Text variant="button" color={colour.ink}>Allow camera</Text>
+          <Pressable
+            style={styles.allowBtn}
+            onPress={() => {
+              if (canPrompt) void requestPermission();
+              else void Linking.openSettings();
+            }}
+          >
+            <Text variant="button" color={colour.ink}>
+              {canPrompt ? 'Allow camera' : 'Open Settings'}
+            </Text>
+          </Pressable>
+          <Pressable hitSlop={12} onPress={() => router.back()}>
+            <Text variant="body" color="rgba(246,241,231,.7)">Not now</Text>
           </Pressable>
         </View>
       </Screen>
@@ -63,6 +97,13 @@ export function CaptureScreen() {
         </Text>
       </View>
       <View style={styles.frame} pointerEvents="none" />
+      {captureFailed ? (
+        <View style={styles.captureError} pointerEvents="none">
+          <Text variant="body" color={colour.paperElevated} style={{ textAlign: 'center' }}>
+            That photo didn’t save. Try once more.
+          </Text>
+        </View>
+      ) : null}
       <View style={styles.bottomRow}>
         <View style={{ width: 68 }} />
         <Pressable
@@ -117,5 +158,15 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.4)',
   },
   permissionPrompt: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.section, gap: spacing.huge },
+  captureError: {
+    position: 'absolute',
+    left: spacing.section,
+    right: spacing.section,
+    bottom: 130,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: radius.card,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+  },
   allowBtn: { backgroundColor: colour.paperElevated, paddingHorizontal: spacing.huge, paddingVertical: spacing.md, borderRadius: radius.pill },
 });
