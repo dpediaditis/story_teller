@@ -3,7 +3,7 @@ import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-nat
 import { router, useFocusEffect } from 'expo-router';
 import type { StorySummaryDto } from '@papercub/shared';
 import { Screen, Text, EyebrowLabel, Button } from '../../components';
-import { apiClient } from '../../lib/api';
+import { apiClient, ApiCallError, errorCopy } from '../../lib/api';
 import { colour, inkAlpha, radius, spacing, themeColour } from '../../theme';
 
 /** E1 — Stories home, with the E2 empty state when the library has nothing yet. */
@@ -11,10 +11,28 @@ export function StoriesHomeScreen() {
   const [stories, setStories] = useState<StorySummaryDto[] | null>(null);
   const [favouritesOnly, setFavouritesOnly] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
+  /* CLAUDE.md: "no try/catch that swallows. An unhandled network failure
+   * renders the offline state, never a spinner forever." This had no catch at
+   * all, so a failed load left an unhandled promise rejection and
+   * `stories === null` — a permanently blank screen with no way out. It never
+   * showed on the mock, which cannot fail; the first live 401 produced exactly
+   * that. Reading is never gated behind sign-in (DECISIONS.md §12), so the
+   * library failing to load must still be a screen the user can act on. */
   const load = useCallback(async () => {
-    const res = await apiClient.call('listStories', { favouritesOnly, limit: 50, cursor: null });
-    setStories(res.stories);
+    try {
+      const res = await apiClient.call('listStories', { favouritesOnly, limit: 50, cursor: null });
+      setStories(res.stories);
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(
+        err instanceof ApiCallError ? errorCopy(err.apiError.copyKey) : errorCopy(undefined),
+      );
+      // Deliberately left as-is rather than cleared: stale stories beat an
+      // empty library, and an empty library reads as "you have nothing".
+      setStories((prev) => prev ?? []);
+    }
   }, [favouritesOnly]);
 
   useFocusEffect(
@@ -29,7 +47,33 @@ export function StoriesHomeScreen() {
     setRefreshing(false);
   }
 
+
   if (stories === null) return <Screen />;
+
+  if (loadError !== null && stories.length === 0) {
+    return (
+      <Screen>
+        <View style={styles.header}>
+          <Text variant="sectionHeading">Stories</Text>
+        </View>
+        <View style={styles.empty}>
+          <Text variant="sectionHeading" style={{ textAlign: 'center' }}>
+            We couldn’t load the library.
+          </Text>
+          <Text
+            variant="body"
+            color={inkAlpha.textBody}
+            style={{ marginTop: spacing.sm, textAlign: 'center' }}
+          >
+            {loadError}
+          </Text>
+          <View style={{ marginTop: spacing.section }}>
+            <Button label="Try again" onPress={() => void load()} />
+          </View>
+        </View>
+      </Screen>
+    );
+  }
 
   if (stories.length === 0) {
     return (

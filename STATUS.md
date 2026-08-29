@@ -122,14 +122,16 @@ project — 401 unauthenticated, 422 on an unsupported method, both in the corre
 one 404'd. `revenuecat-webhook` is deployed with `--no-verify-jwt` because it
 authenticates by its own header secret, not a Supabase JWT.
 
-**ONE blocker remains, and it is not code: anonymous sign-ins are disabled on
-the project.** `POST /auth/v1/signup` returns `422 anonymous_provider_disabled`.
-DECISIONS.md §12 makes anonymous the first-launch path and §7 builds the whole
-auth model on it, so nothing authenticated can happen until this is switched on:
+**Anonymous sign-in works.** The app boots, signs in anonymously against the
+live project, and the library screen loads over the real Edge Functions. Verified
+29 Aug 2026 on the iOS 26 simulator.
 
-> Dashboard -> Authentication -> Sign In / Providers -> **Anonymous Sign-Ins**
-
-Not done here: it is a project auth setting, not a deploy.
+**Next blocker for a true end-to-end run: the cut-out is never uploaded.**
+`NameCharacterScreen` sends a placeholder `cutoutStorageKey` of
+`drawings/local/<timestamp>-cutout.png` — mock-era code. `createUploadUrl` is
+never called, so nothing is in the bucket and the worker's `downloadObject`
+will fail at gate 1. The create flow needs: capture -> isolate ->
+`createUploadUrl` -> PUT the cut-out -> `createCharacter` with the REAL key.
 
 `revenuecat-webhook` currently 500s because `REVENUECAT_WEBHOOK_SECRET` is not
 set as a function secret. Expected — RevenueCat is Step 3 in `.env` and is not

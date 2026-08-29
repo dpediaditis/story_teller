@@ -52,6 +52,23 @@ export function IsolationPreviewScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.capturedImageUri]);
 
+  /**
+   * Back to the camera for another shot.
+   *
+   * `router.back()` rather than a push, so the preview is POPPED — a retake
+   * must not stack another preview on top of the last one.
+   *
+   * The stale capture is cleared first, and that is not tidiness. `acceptAsIs`
+   * falls back to `draft.isolation` when the new isolate does not produce one,
+   * so a leftover cut-out from the PREVIOUS photo would be silently attached to
+   * the new one — the child's character would be built from a drawing they had
+   * just replaced.
+   */
+  function retake() {
+    update({ capturedImageUri: null, isolation: null, manualCropUsed: false });
+    router.back();
+  }
+
   function acceptAsIs() {
     update({
       manualCropUsed: true,
@@ -101,7 +118,7 @@ export function IsolationPreviewScreen() {
           <View style={{ marginTop: spacing.section, gap: spacing.sm }}>
             <Button label="Draw round the one I mean" onPress={() => router.push('/create/edge-repair')} />
             <Button label="Use the whole picture" kind="secondary" onPress={acceptAsIs} />
-            <Button label="Take it again in better light" kind="ghost" onPress={() => router.back()} />
+            <Button label="Take it again in better light" kind="ghost" onPress={retake} />
           </View>
         </View>
       </Screen>
@@ -128,6 +145,13 @@ export function IsolationPreviewScreen() {
         <View style={{ marginTop: spacing.section, gap: spacing.sm }}>
           <Button label="Looks good" onPress={acceptAsIs} />
           <Button label="Fix edges" kind="secondary" onPress={() => router.push('/create/edge-repair')} />
+          {/* The retake lived ONLY on the "not sure" state below, which is the
+              state the Vision stub always produces — so it looked covered. On a
+              device where isolation actually works, this is the state a parent
+              lands on, and it had no way to take the photo again except an
+              unlabelled chevron. A bad photo is the most likely thing to go
+              wrong at this step; it needs a named way out. */}
+          <Button label="Take it again" kind="ghost" onPress={retake} />
         </View>
       </View>
     </Screen>
