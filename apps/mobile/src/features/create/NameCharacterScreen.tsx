@@ -5,7 +5,8 @@ import { asUntrustedText } from '@papercub/shared';
 import { Screen, Text, TopBar, Button, EyebrowLabel } from '../../components';
 import { useCreateFlow } from './CreateFlowContext';
 import { useSession } from '../session/SessionProvider';
-import { apiClient } from '../../lib/api';
+import { apiClient, ApiCallError, errorCopy } from '../../lib/api';
+import { DrawingTooLargeError, uploadDrawing } from '../../lib/api/uploadDrawing';
 import { colour, inkAlpha, radius, spacing } from '../../theme';
 
 /**
@@ -44,6 +45,33 @@ export function NameCharacterScreen() {
       return;
     }
     try {
+      /* The cut-out goes to Storage FIRST, and `createCharacter` is called with
+       * the key the server minted for it. This used to send
+       * `drawings/local/<timestamp>-cutout.png`, a key that named nothing: the
+       * character and job were created and the worker then failed at gate 1
+       * against an empty bucket.
+       *
+       * Upload before create, deliberately. The other order would leave a
+       * character row and a paid-for job pointing at a file that never
+       * arrived; this order can at worst leave an orphaned object, which the
+       * retention sweep collects and which costs nothing. */
+      const cutout = await uploadDrawing({
+        childId,
+        fileUri: draft.isolation.cutoutUri,
+        purpose: 'cutout',
+        // The cut-out carries alpha (vision-module: "file:// PNG with alpha"),
+        // so it must stay PNG — a JPEG round-trip would fill the transparent
+        // background with black.
+        contentType: 'image/png',
+      });
+
+      /* DECISIONS.md §10: "Upload the isolated cut-out by default. The full
+       * photo only if the parent opts to keep the original." Nothing in the
+       * flow offers that opt-in yet, so the original stays on the device and
+       * `retentionPolicy` says so. When the toggle exists, this is where the
+       * second upload goes — not a change to the server. */
+      const retentionPolicy = 'delete_after_cutout' as const;
+
       const res = await apiClient.call('createCharacter', {
         childId,
         // Stable for this create-flow attempt — see CreateFlowContext.
@@ -52,10 +80,10 @@ export function NameCharacterScreen() {
         characterType: type,
         personalityTraits: traits,
         drawing: {
-          cutoutStorageKey: `drawings/local/${Date.now()}-cutout.png`,
+          cutoutStorageKey: cutout.storageKey,
           originalStorageKey: null,
           source: 'camera',
-          retentionPolicy: 'delete_after_cutout',
+          retentionPolicy,
           exifStripped: true,
           isolationMethod: draft.isolation.method,
           isolationConfidence: draft.isolation.confidence,
@@ -69,6 +97,17 @@ export function NameCharacterScreen() {
       });
       update({ characterId: res.character.id, characterName: check.value, characterType: type, personalityTraits: traits });
       router.push('/create/character-card');
+    } catch (err) {
+      // CLAUDE.md: never swallow. This whole block used to have only a
+      // `finally`, so an upload or create failure left the button un-stuck and
+      // the screen silent — the parent taps again and burns another slot.
+      if (err instanceof DrawingTooLargeError) {
+        setError('That photo is a bit too big. Try taking it again.');
+      } else if (err instanceof ApiCallError) {
+        setError(errorCopy(err.apiError.copyKey));
+      } else {
+        setError(errorCopy(undefined));
+      }
     } finally {
       setSaving(false);
     }

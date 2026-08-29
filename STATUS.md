@@ -126,12 +126,24 @@ authenticates by its own header secret, not a Supabase JWT.
 live project, and the library screen loads over the real Edge Functions. Verified
 29 Aug 2026 on the iOS 26 simulator.
 
-**Next blocker for a true end-to-end run: the cut-out is never uploaded.**
-`NameCharacterScreen` sends a placeholder `cutoutStorageKey` of
-`drawings/local/<timestamp>-cutout.png` — mock-era code. `createUploadUrl` is
-never called, so nothing is in the bucket and the worker's `downloadObject`
-will fail at gate 1. The create flow needs: capture -> isolate ->
-`createUploadUrl` -> PUT the cut-out -> `createCharacter` with the REAL key.
+**The upload flow is wired and proven end to end** (29 Aug 2026). Exercised
+against the live project with a real anonymous JWT and a real child's drawing:
+
+```
+anonymous sign-in -> upsertChild -> createUploadUrl -> PUT to the signed URL
+   -> createCharacter -> claim_character_build -> pgmq -> worker
+   -> gate 1 downloads THAT object -> vision -> reference sheet -> ready
+```
+
+Character `ready`, feature anchor written, one reference sheet, palette in hex,
+reservation released to 0, **6.86c** — matching the earlier measurement. The
+worker read exactly the object the client uploaded, which is the step that was
+previously impossible.
+
+The one link not exercised on a device is `File.upload()` itself: the iOS
+simulator has no camera and the "Choose from Photos" button is not a picker
+yet, so there is no way to produce a real `file://` image in it. Everything the
+upload talks TO is verified with the identical PUT.
 
 `revenuecat-webhook` currently 500s because `REVENUECAT_WEBHOOK_SECRET` is not
 set as a function secret. Expected — RevenueCat is Step 3 in `.env` and is not
