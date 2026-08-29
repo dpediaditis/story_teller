@@ -42,6 +42,7 @@ import type {
 } from '@papercub/shared';
 import type { CostLedger } from '../cost';
 import { JobFailure } from '../errors';
+import { alignNarration } from '../narration-alignment.ts';
 import type { GateContext } from '../moderation';
 import {
   gateImageSetCloseOut,
@@ -360,13 +361,59 @@ export async function runStoryGenerate(args: StoryRunArgs): Promise<void> {
   // stored content type is what the player is handed.
   await db.uploadObject(narrationKey, speech.value.audioBytes, speech.value.mimeType);
 
+  /* Where the narrator's stops actually fall.
+   *
+   * The synthesiser returns no timings, but it does pause between sentences and
+   * the pauses are measurable — see narration-alignment.ts. Doing it here is
+   * free: the audio is already in memory, so this is arithmetic, no download and
+   * no provider call. The reader turns pages on these and highlights against
+   * them; without them it falls back to a model that drifts by seconds.
+   *
+   * A story whose audio does not support an alignment simply stores nothing.
+   * That is a worse reader experience, not a failed story, so it must never
+   * fail the job. */
+  let wordTimingsKey: string | null = null;
+  try {
+    const alignment = alignNarration(
+      speech.value.audioBytes,
+      orderedPages.map((p) => ({ index: p.index, text: p.text })),
+      speech.value.durationMs,
+    );
+    if (alignment) {
+      const timingsKey = buildStorageKey({
+        bucket: 'narration',
+        ownerUid: job.parentId,
+        scope: job.storyId,
+        id: 'narration.timings',
+        ext: 'json',
+      });
+      await db.uploadObject(
+        timingsKey,
+        new TextEncoder().encode(JSON.stringify(alignment.anchors)),
+        'application/json',
+      );
+      wordTimingsKey = timingsKey;
+      logger.info('narration aligned', {
+        storyId: job.storyId,
+        anchored: alignment.anchoredCount,
+        boundaries: alignment.boundaryCount,
+      });
+    } else {
+      logger.info('narration not aligned; reader falls back to the modelled timeline', {
+        storyId: job.storyId,
+      });
+    }
+  } catch (err) {
+    logger.warn('narration alignment failed', { storyId: job.storyId, error: String(err) });
+  }
+
   await db.insertNarration({
     storyId: job.storyId,
     voiceId: job.voiceId,
     provider: speech.usage.provider,
     storageKey: narrationKey,
     durationMs: speech.value.durationMs,
-    wordTimingsKey: null,
+    wordTimingsKey,
     // Sentence-level timing is sufficient for a five-year-old (narrations.sql).
     sentenceLevelOnly: true,
     language: job.locale,

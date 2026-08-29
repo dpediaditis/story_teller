@@ -11,10 +11,12 @@ import {
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import type { NarratedPage, StoryDetailDto } from '@papercub/shared';
+import type { SentenceAnchors } from '@papercub/shared';
 import {
   DEFAULT_NARRATION_VOICE_ID,
   NARRATION_VOICES,
   buildNarrationTimeline,
+  isSentenceAnchors,
   pageIndexAtMs,
   wordAtMs,
 } from '@papercub/shared';
@@ -91,10 +93,36 @@ export function ReaderScreen({ storyId }: { storyId: string }) {
       ? [
           story.cover?.storageKey,
           story.narration?.storageKey,
+          story.narration?.wordTimingsKey,
           ...story.pages.map((p) => p.illustration?.storageKey),
         ]
       : [],
   );
+
+  /* The measured sentence boundaries, when the worker found any.
+   *
+   * A few hundred bytes of JSON beside the audio, signed in the same batch as
+   * everything else on this screen. Failing to fetch it is not an error the
+   * reader has to show: the timeline falls back to the model, which is what
+   * every story narrated before alignment existed uses anyway. */
+  const timingsUrl = story?.narration?.wordTimingsKey
+    ? (signedUrls[story.narration.wordTimingsKey] ?? null)
+    : null;
+  const [anchors, setAnchors] = useState<SentenceAnchors | null>(null);
+
+  useEffect(() => {
+    if (!timingsUrl) return;
+    let cancelled = false;
+    fetch(timingsUrl)
+      .then((res) => res.json())
+      .then((json: unknown) => {
+        if (!cancelled && isSentenceAnchors(json)) setAnchors(json);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [timingsUrl]);
 
   /* REAL playback. This screen shipped with a play button that only toggled a
    * boolean and ran a setInterval — the progress bar moved and no sound ever
@@ -141,8 +169,9 @@ export function ReaderScreen({ storyId }: { storyId: string }) {
     return buildNarrationTimeline(
       readable.map((p) => ({ index: p.index, text: p.text })),
       story.narration.durationMs,
+      anchors,
     );
-  }, [story]);
+  }, [story, anchors]);
 
   const turn = useCallback(
     (next: number, seek: boolean) => {

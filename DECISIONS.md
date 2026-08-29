@@ -1097,3 +1097,66 @@ a filter applied has to keep rendering the filter, or the filter is a trap.
 
 The heart itself now lives in the reader's top bar and on the end screen, which
 is where a family actually decides they want to keep a story.
+
+## §22 — Anchoring the narration to the audio
+
+§21 shipped a modelled timeline and it was visibly out of sync. Measured
+against the audio afterwards, the story on screen when it was reported drifted
++1.1s by page two, +1.9s by page three and **+2.3s by page four**, coming back
+to +1.0s at the end. Pinned at both ends, bowed in the middle — the shape you
+get when the ratio of talking to pausing is guessed.
+
+The fix is to stop guessing and read the narrator's own stops out of the PCM.
+
+### The stops are there
+
+A 10ms RMS envelope thresholded at 2% of peak, on a real 68.4s narration of 18
+sentences: 260ms of lead-in, 300ms of run-out, and internal silences in two
+clean groups — **470-890ms at full stops, 120-330ms at commas, nothing in
+between**. Seventeen of the former for eighteen sentences.
+
+Doing it in the pipeline is free. The PCM is already in memory when the
+narration is uploaded, so it is arithmetic: no download, no provider call. The
+boundaries go to `narrations.word_timings_key`, a column that had been sitting
+null since the schema was written for exactly this.
+
+Only the boundaries are stored, not word times. Words are still distributed
+inside a sentence by syllable weight, so error is bounded by one sentence, a few
+seconds at most, and cannot accumulate. The reader's two-level highlight maps
+onto that split exactly: the sentence wash is measured, the word mark is
+modelled.
+
+### Three things that had to be measured to get right
+
+**The expectation had to be calibrated.** Scoring candidates against an
+uncalibrated model failed on the very first story: the bias makes every
+candidate look like a bad match, and skipping every boundary scores better than
+matching any. But the split between talking time and pausing time does not have
+to be guessed — the detector already knows how much of the file is silence.
+
+**The cost had to be on the CHANGE in offset, not its size.** Even calibrated,
+the residual bows: +0.5s at the first boundary, +2.7s in the middle, +0.7s at
+the last, because a narrator does not hold one pace. Penalising the offset made
+the correct one-to-one assignment look expensive, and the cheaper answer was to
+skip a boundary and slide every later one onto its neighbour's pause — page
+turns landing a sentence out, which is the original complaint reproduced by the
+fix for it. Penalising the change makes smooth drift nearly free and a slide
+expensive, because a slide is a jump and then a jump back. There is a
+regression test for it, with the real candidate times as the fixture.
+
+**Skips had to be allowed at all.** Across seven real narrations, two had fewer
+detectable stops than boundaries — 12 for 17, and 24 for 29 — because the
+narrator ran some sentences together. A boundary with no pause is interpolated
+between its neighbours; below half of them anchored, the whole thing is
+discarded and the reader keeps the fallback.
+
+### Result
+
+All seven existing narrations anchored (12/12, 11/11, 15/17, 12/17, 25/29,
+11/11, 17/17) by `pnpm --filter @papercub/worker backfill:anchors`, which
+downloads and analyses rather than re-narrating: re-synthesising would cost
+money and change a voice a family already knows. On the story that was
+reported, every page now turns within 0ms of where it was measured by hand.
+
+The fallback stays for narrations that cannot be aligned, and `timeline.anchored`
+says which one you are looking at.
