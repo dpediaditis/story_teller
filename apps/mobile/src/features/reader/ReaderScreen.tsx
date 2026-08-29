@@ -6,6 +6,7 @@ import type { StoryDetailDto } from '@papercub/shared';
 import { DEFAULT_NARRATION_VOICE_ID, NARRATION_VOICES } from '@papercub/shared';
 import { Screen, Text, Button } from '../../components';
 import { useSignedMedia } from '../../lib/api/useSignedMedia';
+import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { apiClient } from '../../lib/api';
 import { colour, inkAlpha, radius, spacing } from '../../theme';
 
@@ -40,18 +41,40 @@ export function ReaderScreen({ storyId }: { storyId: string }) {
       .catch(() => setFailed(true));
   }, [storyId]);
 
-  useEffect(() => {
-    if (!playing) return;
-    const t = setInterval(() => setElapsedMs((e) => e + 1000), 1000);
-    return () => clearInterval(t);
-  }, [playing]);
-
   // Before the early return: hooks may not be conditional. One batched
   // media-sign for the whole book — private buckets, so a storage key is not a
   // URL and never can be.
   const { urls: signedUrls } = useSignedMedia(
-    story ? [story.cover?.storageKey, ...story.pages.map((p) => p.illustration?.storageKey)] : [],
+    story
+      ? [
+          story.cover?.storageKey,
+          story.narration?.storageKey,
+          ...story.pages.map((p) => p.illustration?.storageKey),
+        ]
+      : [],
   );
+
+  /* REAL playback. This screen shipped with a play button that only toggled a
+   * boolean and ran a setInterval — the progress bar moved and no sound ever
+   * came out. `expo-audio` was already a dependency; nothing was ever wired to
+   * it.
+   *
+   * playsInSilentMode is not optional for this product: a bedtime story is read
+   * on a phone that lives on silent, and "I pressed play and heard nothing" is
+   * indistinguishable from broken. */
+  const narrationUrl = story?.narration ? (signedUrls[story.narration.storageKey] ?? null) : null;
+  const player = useAudioPlayer(narrationUrl ? { uri: narrationUrl } : null);
+  const status = useAudioPlayerStatus(player);
+
+  useEffect(() => {
+    void setAudioModeAsync({ playsInSilentMode: true }).catch(() => undefined);
+  }, []);
+
+  // Elapsed comes from the PLAYER now, not a timer counting hopefully upward.
+  useEffect(() => {
+    setElapsedMs(Math.round((status.currentTime ?? 0) * 1000));
+    setPlaying(status.playing ?? false);
+  }, [status.currentTime, status.playing]);
 
   if (failed) {
     return (
@@ -141,7 +164,14 @@ export function ReaderScreen({ storyId }: { storyId: string }) {
             <Pressable onPress={prev} style={styles.navBtn}>
               <Text variant="button">‹</Text>
             </Pressable>
-            <Pressable onPress={() => setPlaying((p) => !p)} style={styles.playBtn}>
+            <Pressable
+              onPress={() => {
+                if (!narrationUrl) return;
+                if (status.playing) player.pause();
+                else player.play();
+              }}
+              style={[styles.playBtn, !narrationUrl && { opacity: 0.4 }]}
+            >
               <Text variant="button" color={colour.paperElevated}>{playing ? '❚❚' : '▶'}</Text>
             </Pressable>
             <Pressable onPress={next} style={styles.navBtn}>

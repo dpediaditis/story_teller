@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { router, usePathname, useLocalSearchParams } from 'expo-router';
 import { PRODUCTS, QUOTA, type ProductId } from '@papercub/shared';
 import { Screen, Text, Button, EyebrowLabel } from '../../components';
@@ -243,7 +243,7 @@ export function PaywallScreen({ variant, storyTitle }: PaywallScreenProps) {
         </Pressable>
       </View>
 
-      <View style={styles.body}>
+      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         {variant === 'after-first-story' ? (
           <>
             <EyebrowLabel>YOU MADE</EyebrowLabel>
@@ -328,7 +328,7 @@ export function PaywallScreen({ variant, storyTitle }: PaywallScreenProps) {
             <Text variant="label" color={colour.danger}>{state.message}</Text>
           </View>
         ) : null}
-      </View>
+      </ScrollView>
 
       <View style={styles.footer}>
         {isSubscriber && variant === 'quota-reached' ? (
@@ -388,7 +388,9 @@ function PlanCard({
 const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'flex-end', padding: spacing.xxl },
   closeBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: inkAlpha.divider, alignItems: 'center', justifyContent: 'center' },
-  body: { flex: 1, paddingHorizontal: spacing.xxl },
+  // Was `flex: 1` inside a plain View, so anything past the fold was simply
+  // cut off — on the smaller iPhones that included the price cards.
+  body: { paddingHorizontal: spacing.xxl, paddingBottom: spacing.section },
   usedRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.lgPlus },
   features: { marginTop: spacing.section, gap: spacing.sm },
   featureLine: {},

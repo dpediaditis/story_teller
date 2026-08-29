@@ -1,9 +1,11 @@
 import { useCallback, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
+import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import type { CharacterDto, QuotaSnapshot } from '@papercub/shared';
 import { Screen, Text, EyebrowLabel, Button } from '../../components';
 import { apiClient } from '../../lib/api';
+import { useSignedMedia } from '../../lib/api/useSignedMedia';
 import { useSession } from '../session/SessionProvider';
 import { colour, inkAlpha, radius, spacing } from '../../theme';
 
@@ -29,6 +31,14 @@ export function CharactersScreen() {
     useCallback(() => {
       setQuota(session?.quota ?? null);
     }, [session]),
+  );
+
+  /* The tile showed the character's name in a beige box. A child looking for
+   * their own drawing was reading a label, in a product whose whole promise is
+   * that the drawing itself comes back. One batched sign for the grid — the
+   * bucket is private, so a storage key is not a URL. */
+  const { urls: portraitUrls } = useSignedMedia(
+    (characters ?? []).map((c) => portraitKey(c)),
   );
 
   const atCharacterLimit = quota ? quota.charactersUsed >= quota.charactersLimit : false;
@@ -64,7 +74,9 @@ export function CharactersScreen() {
         numColumns={2}
         contentContainerStyle={styles.grid}
         columnWrapperStyle={{ gap: spacing.lgPlus }}
-        renderItem={({ item }) => <CharacterTile character={item} />}
+        renderItem={({ item }) => (
+          <CharacterTile character={item} portraitUrl={portraitUrls[portraitKey(item)] ?? null} />
+        )}
         ListFooterComponent={
           <View style={{ paddingTop: spacing.huge }}>
             <Button label="Add a character" onPress={startCreate} audience="parent" />
@@ -75,13 +87,35 @@ export function CharactersScreen() {
   );
 }
 
-function CharacterTile({ character }: { character: CharacterDto }) {
+/**
+ * The reference sheet if the build finished, the child's own cut-out until
+ * then. The cut-out is whatever came off the camera — with the Vision module
+ * still a stub it is the raw photograph, background and all — so the drawn
+ * character is the better picture the moment it exists.
+ */
+function portraitKey(character: CharacterDto): string {
+  return character.primaryAsset?.storageKey ?? character.cutoutStorageKey;
+}
+
+function CharacterTile({
+  character,
+  portraitUrl,
+}: {
+  character: CharacterDto;
+  portraitUrl: string | null;
+}) {
   return (
     <Pressable style={styles.tile} onPress={() => router.push(`/tabs/characters/${character.id}`)}>
       <View style={styles.thumb}>
-        <Text variant="captionMono" color={inkAlpha.textLabel} style={{ fontWeight: '700' }}>
-          {character.name.toUpperCase()}
-        </Text>
+        {portraitUrl ? (
+          // `contain`, never `cover`: a cut-out is a shape on transparency and
+          // cropping it takes the head off.
+          <Image source={{ uri: portraitUrl }} style={styles.thumbImage} contentFit="contain" />
+        ) : (
+          <Text variant="captionMono" color={inkAlpha.textLabel} style={{ fontWeight: '700' }}>
+            {character.status === 'building' ? 'MAKING…' : character.name.toUpperCase()}
+          </Text>
+        )}
       </View>
       <Text variant="sectionHeading" style={styles.tileName}>{character.name}</Text>
       <Text variant="label" color={inkAlpha.textLabel} style={{ marginTop: 5 }}>
@@ -105,7 +139,15 @@ const styles = StyleSheet.create({
     backgroundColor: colour.paperCard,
   },
   grid: { paddingHorizontal: spacing.xxl, paddingBottom: spacing.section, gap: spacing.lgPlus },
-  tile: { flex: 1, backgroundColor: colour.paperCard, borderRadius: radius.cardLg, padding: spacing.md },
+  // `flex: 1` alone made a lone character stretch the full row, so one drawing
+  // filled the screen as a poster instead of sitting in a grid of two.
+  tile: {
+    flex: 1,
+    maxWidth: '48%',
+    backgroundColor: colour.paperCard,
+    borderRadius: radius.cardLg,
+    padding: spacing.md,
+  },
   thumb: {
     aspectRatio: 1,
     borderRadius: radius.card,
@@ -113,5 +155,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  thumbImage: { width: '88%', height: '88%' },
   tileName: { fontSize: 21, marginTop: spacing.sm },
 });

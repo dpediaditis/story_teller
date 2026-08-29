@@ -1,9 +1,11 @@
 import { useCallback, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
+import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import type { StorySummaryDto } from '@papercub/shared';
-import { Screen, Text, EyebrowLabel, Button } from '../../components';
+import { Screen, Text, Button } from '../../components';
 import { apiClient, ApiCallError, errorCopy } from '../../lib/api';
+import { useSignedMedia } from '../../lib/api/useSignedMedia';
 import { colour, inkAlpha, radius, spacing, themeColour } from '../../theme';
 
 /** E1 — Stories home, with the E2 empty state when the library has nothing yet. */
@@ -47,6 +49,13 @@ export function StoriesHomeScreen() {
     setRefreshing(false);
   }
 
+
+  /* Every cover in one batched media-sign. The cards used to render a flat
+   * theme colour and never touch `story.cover`, which is right there on the
+   * DTO — so a library of finished picture books looked like a stack of blue
+   * rectangles. For a product whose entire promise is the picture, that was the
+   * worst possible thing to leave out. */
+  const { urls: coverUrls } = useSignedMedia((stories ?? []).map((s) => s.cover?.storageKey));
 
   if (stories === null) return <Screen />;
 
@@ -116,6 +125,16 @@ export function StoriesHomeScreen() {
           </Pressable>
         </View>
       </View>
+
+      {/* There was NO way to start a story from the library once it had
+          anything in it — the only entry point was the empty state, which you
+          never see again after your first book. Characters is the honest
+          destination: a story is always about somebody, so you choose who
+          first. */}
+      <View style={styles.newRow}>
+        <Button label="＋  New story" kind="secondary" onPress={() => router.push('/tabs/characters')} />
+      </View>
+
       <FlatList
         data={stories}
         keyExtractor={(s) => s.id}
@@ -123,13 +142,15 @@ export function StoriesHomeScreen() {
         contentContainerStyle={styles.grid}
         columnWrapperStyle={{ gap: spacing.lgPlus }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        renderItem={({ item }) => <StorySpine story={item} />}
+        renderItem={({ item }) => (
+          <StorySpine story={item} coverUrl={coverUrls[item.cover?.storageKey ?? ''] ?? null} />
+        )}
       />
     </Screen>
   );
 }
 
-function StorySpine({ story }: { story: StorySummaryDto }) {
+function StorySpine({ story, coverUrl }: { story: StorySummaryDto; coverUrl: string | null }) {
   const spine = themeColour[story.theme];
   const isGenerating = story.status === 'queued' || story.status === 'generating' || story.status === 'partial';
   return (
@@ -138,6 +159,14 @@ function StorySpine({ story }: { story: StorySummaryDto }) {
       onPress={() => router.push(isGenerating ? `/create/generating?storyId=${story.id}` : `/story/${story.id}/reader`)}
     >
       <View style={[styles.spine, { backgroundColor: spine.fill, borderLeftColor: spine.deep }]}>
+        {coverUrl ? (
+          <>
+            <Image source={{ uri: coverUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
+            {/* The title sits ON the cover, so it needs its own ground to stay
+                readable over whatever the illustrator produced. */}
+            <View style={styles.spineScrim} />
+          </>
+        ) : null}
         <Text variant="sectionHeading" color={colour.paperElevated} numberOfLines={3} style={styles.spineTitle}>
           {story.title ?? `${story.characterNames[0] ?? 'A'} story — writing…`}
         </Text>
@@ -153,6 +182,15 @@ function StorySpine({ story }: { story: StorySummaryDto }) {
 }
 
 const styles = StyleSheet.create({
+  newRow: { paddingHorizontal: spacing.xxl, paddingBottom: spacing.lgPlus },
+  spineScrim: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(20,18,15,0.34)',
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -173,7 +211,10 @@ const styles = StyleSheet.create({
   },
   filterPillActive: { backgroundColor: colour.ink, borderColor: colour.ink },
   grid: { paddingHorizontal: spacing.xxl, paddingBottom: spacing.section, gap: spacing.lgPlus },
-  spineWrap: { flex: 1 },
+  // `flex: 1` alone makes an ODD last item stretch across the whole row — a
+  // finished book rendered three times the size of its siblings. maxWidth caps
+  // it to its column.
+  spineWrap: { flex: 1, maxWidth: '48%' },
   spine: {
     aspectRatio: 0.78,
     borderRadius: 6,

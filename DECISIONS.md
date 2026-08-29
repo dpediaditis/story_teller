@@ -951,3 +951,77 @@ The honesty constraint is unchanged and is what makes it work: the manuscript on
 `writing_story`, the cover on the real `coverReady`, one page per
 `readablePageIndexes` entry. The pile IS the progress bar, so there is still no
 percentage.
+
+## §20 — What the app looked like on the device
+
+A list of twelve things wrong with the running app, each reproduced in the
+Simulator before the fix and re-checked there after it. Four were not visual at
+all; they only presented that way.
+
+### The three that were data or routing, not design
+
+**Five of the eight stories in the account could not be opened.** The reader
+showed "We couldn't open this story." for books that were complete, illustrated
+and narrated on the server. `NarrationDto.language` is typed `StoryLocale`, the
+column is plain `text`, and every narration written before the locale work
+stored the bare subtag `'en'`. `StoryDetailDto` is parsed client-side, so the
+enum rejected it and `getStory` threw. Backfilled and given a check constraint
+in `20260829180000_narration_language_locale.sql` — the worker already writes
+`job.locale`, and the constraint is what turns that habit into a guarantee.
+
+The general lesson: a wire type that is stricter than its column is a bomb with
+a delay on it. It does not fire when the row is written; it fires when somebody
+reads it back, which may be weeks later and always on the client.
+
+**Onboarding ran on every cold launch.** The "has this family onboarded" flag
+was a module-level boolean in `app/index.tsx`, reset by every process start. A
+returning family met the welcome screen and reported it as *"all the stories we
+created before are gone"* — nothing was gone; the way back to them was behind
+four screens. The launch gate now asks the account: a family that has onboarded
+has a child profile, a fact that lives on the server and survives a reinstall.
+When the session cannot be loaded at all the gate sends them to the tabs, not to
+onboarding, because the library renders its own offline state and onboarding
+would ask a returning family to set up an account they already have.
+
+**`getCharacter` returned `cover: null` and `pageCount: 0` as literals.** The
+same DTO built by the `stories` function carries both; this handler simply never
+asked for them, so every story row on the character screen was an empty grey
+rectangle.
+
+### Narration that made no sound
+
+The play button toggled a boolean and started a `setInterval`. The progress bar
+moved, the timer counted up, and nothing was ever handed to an audio player —
+`expo-audio` was already a dependency. `playsInSilentMode` is not an option
+here: this product is used at bedtime on a phone that lives on silent, and
+"I pressed play and heard nothing" is indistinguishable from broken.
+
+### Emoji, three times, on purpose
+
+The hand-built voice creatures were reported as *scary*, and they were: flat
+geometry with two dots and a slot reads as uncanny, not friendly. The
+alternatives were bundled sets — Twemoji (CC BY 4.0, redistribution plus an
+attribution notice in the app) and OpenMoji (CC BY-SA 4.0, ShareAlike on a
+commercial kids' product). System emoji has neither problem: rendering text in
+the platform font is not redistribution, so there is nothing to bundle, nothing
+to attribute, and no asset that can fail to load.
+
+The same answer solved two more: children pick an animal instead of the first
+letter of their name (a child who cannot read cannot find themselves in a list
+of letters), and each story theme gets a picture instead of a coloured square
+("Where should Pixel go?" answered with a navy rectangle is not a choice a
+four-year-old can make).
+
+The trade-off, stated: emoji render differently per platform, so this is not a
+way to express brand. That is the right call here. The only character in a
+Papercub story that should be distinctive is the child's own drawing, and the
+app's furniture must not compete with it.
+
+### Everything else was a flat colour block
+
+Story tiles, character tiles and the character portrait all rendered their
+identity as a beige or coloured rectangle with a label. They now show the cover,
+the reference sheet, and the cut-out respectively. Two grids also stretched a
+lone tile across the full row — `flex: 1` with `numColumns: 2` needs
+`maxWidth: '48%'` — and two screens (the paywall, Family) had content below the
+fold inside a plain `View` with no way to scroll to it.

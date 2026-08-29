@@ -21,6 +21,7 @@
 import { z } from 'zod';
 import { DEFAULT_NARRATION_VOICE_ID, NarrationVoiceId } from './voices.ts';
 import { DEFAULT_STORY_LOCALE, StoryLocale } from './languages.ts';
+import { ChildAvatar } from './avatars.ts';
 import {
   AgeBand, AuthProvider, CharacterAssetKind, CharacterStatus, DrawingSource,
   EntitlementTier, GenerationStage, IsolationMethod, JobStatus, JobType,
@@ -118,6 +119,8 @@ export const ChildProfileDto = z.object({
   displayName: z.string().max(40).nullable(),
   ageBand: AgeBand,
   avatarCharacterId: Uuid.nullable(),
+  /** Parent-chosen picture shown beside the name. Never sent to a provider. */
+  avatar: ChildAvatar.nullable(),
   createdAt: IsoDateTimeSchema,
 });
 
@@ -268,6 +271,7 @@ export const UpsertChildRequest = z.object({
   /** Optional and skippable in onboarding. NEVER sent to a provider. */
   displayName: z.string().trim().max(40).nullable(),
   ageBand: AgeBand,
+  avatar: ChildAvatar.nullable().default(null),
 });
 export const UpsertChildResponse = z.object({ child: ChildProfileDto });
 export const DeleteChildRequest = z.object({ id: Uuid });

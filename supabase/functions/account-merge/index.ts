@@ -207,7 +207,7 @@ Deno.serve(
       if (parentError) throw parentError;
       const { data: children, error: childrenError } = await supabase
         .from('child_profiles')
-        .select('id, display_name, age_band, avatar_character_id, created_at')
+        .select('id, display_name, age_band, avatar_character_id, avatar, created_at')
         .is('deleted_at', null)
         .order('created_at', { ascending: true });
       if (childrenError) throw childrenError;
@@ -227,6 +227,7 @@ Deno.serve(
             displayName: c.display_name,
             ageBand: c.age_band,
             avatarCharacterId: c.avatar_character_id,
+            avatar: c.avatar,
             createdAt: c.created_at,
           })),
           entitlement,

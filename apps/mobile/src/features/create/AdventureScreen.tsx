@@ -1,7 +1,13 @@
 import { useEffect } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
-import { STORY_SHAPE, type StoryLength, type StoryMood, type StoryTheme } from '@papercub/shared';
+import {
+  STORY_SHAPE,
+  STORY_THEME_EMOJI,
+  type StoryLength,
+  type StoryMood,
+  type StoryTheme,
+} from '@papercub/shared';
 import { Screen, Text, TopBar, Button, EyebrowLabel, Chip } from '../../components';
 import { useCreateFlow } from './CreateFlowContext';
 import { colour, inkAlpha, radius, spacing, themeColour } from '../../theme';
@@ -74,6 +80,10 @@ export function AdventureScreen({
                     { backgroundColor: spine.fill, borderColor: selected ? colour.violet : 'transparent' },
                   ]}
                 >
+                  {/* A place, not a swatch. See STORY_THEME_EMOJI. */}
+                  <Text variant="sectionHeading" style={styles.themeEmoji}>
+                    {STORY_THEME_EMOJI[t.value]}
+                  </Text>
                   {selected ? (
                     <View style={styles.checkBadge}>
                       <Text variant="label" color={colour.violet}>✓</Text>
@@ -124,7 +134,14 @@ const styles = StyleSheet.create({
   body: { padding: spacing.xxl, paddingBottom: spacing.section },
   themeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.lgPlus, marginTop: spacing.lgPlus },
   themeCell: { width: '30%' },
-  themeCard: { aspectRatio: 1, borderRadius: radius.card, borderWidth: 2 },
+  themeCard: {
+    aspectRatio: 1,
+    borderRadius: radius.card,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  themeEmoji: { fontSize: 46, lineHeight: 56 },
   checkBadge: {
     position: 'absolute',
     top: spacing.xs,

@@ -57,6 +57,7 @@ const children: ChildProfileDto[] = [
     displayName: 'Mia',
     ageBand: '6_7',
     avatarCharacterId: null,
+    avatar: null,
     createdAt: now(),
   },
 ];
@@ -399,6 +400,7 @@ export const mockApiClient: ApiClient = {
             displayName: req.displayName,
             ageBand: req.ageBand,
             avatarCharacterId: null,
+    avatar: null,
             createdAt: now(),
           };
           children.push(child);

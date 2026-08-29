@@ -41,7 +41,7 @@ export default function WhoIsThisFor() {
     setSaving(true);
     setError(null);
     try {
-      await apiClient.call('upsertChild', { displayName, ageBand });
+      await apiClient.call('upsertChild', { displayName, ageBand, avatar: null });
       // The session was fetched at launch, BEFORE this child existed, and
       // nothing else re-reads it — AuthSessionProvider only refreshes on a
       // Supabase auth change, which creating a child is not. Without this the

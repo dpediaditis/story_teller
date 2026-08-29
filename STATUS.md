@@ -44,6 +44,38 @@ back to the mock only when there is no `.env`; the mock session path is deleted.
 Reader and cover art now come from `media-sign` signed URLs instead of the
 `picsum.photos` placeholders left over from the mock era.
 
+**A pass over what the app actually looks like** (29 Aug 2026), driven by a
+list of things that were wrong on the device. Every item below was reproduced
+in the Simulator and re-checked there after the fix:
+
+- **Narration made no sound.** The play button toggled a boolean and ran a
+  `setInterval`; `expo-audio` was already a dependency and nothing was wired to
+  it. Now a real `useAudioPlayer` on the signed narration URL, with
+  `playsInSilentMode` — a bedtime story is played on a phone that lives on
+  silent.
+- **Five of eight stories could not be opened at all.** `narrations.language`
+  is typed `StoryLocale` in the contract but the column is free text, and every
+  narration written before `20260829160000_story_locale.sql` stored `'en'`.
+  `StoryDetailDto` parses client-side, so `getStory` threw and the reader said
+  "We couldn't open this story." for a complete, illustrated, narrated book.
+  Backfilled and constrained in `20260829180000_narration_language_locale.sql`.
+- **Onboarding ran on every cold launch**, because the "have they onboarded"
+  flag was a module-level boolean. A returning family met the welcome screen
+  and read it as "my stories are gone". `app/index.tsx` now routes on whether
+  the account has a child profile.
+- **`getCharacter` hardcoded `cover: null` and `pageCount: 0`**, so every story
+  row on the character screen was an empty grey rectangle.
+- Story and character tiles show their cover / reference sheet instead of a flat
+  colour block; a lone tile no longer stretches the full row (`maxWidth: 48%`).
+- The paywall and the Family screen scroll — both had content below the fold in
+  a plain `View`.
+- Voice characters are system emoji (`VoiceCreature.tsx` documents the licence
+  comparison against Twemoji and OpenMoji). Same approach gives each child an
+  avatar (`avatars.ts`) and each story theme a picture (`themes.ts`) instead of
+  six coloured squares.
+- The library has a "＋ New story" button; character-screen story rows and
+  library tiles both navigate.
+
 ## Not proven
 
 - `DECISIONS.md` §14 item 1: the price table is **researched, not invoiced**.

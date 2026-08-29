@@ -12,20 +12,20 @@ Deno.serve(
     const { supabase, userId } = await requireUser(req);
 
     if (req.method === 'POST') {
-      const { id, displayName, ageBand } = await parseBody(req, UpsertChildRequest);
+      const { id, displayName, ageBand, avatar } = await parseBody(req, UpsertChildRequest);
 
       const row = id
         ? await supabase
             .from('child_profiles')
-            .update({ display_name: displayName, age_band: ageBand })
+            .update({ display_name: displayName, age_band: ageBand, avatar })
             .eq('id', id)
             .is('deleted_at', null)
-            .select('id, display_name, age_band, avatar_character_id, created_at')
+            .select('id, display_name, age_band, avatar_character_id, avatar, created_at')
             .maybeSingle()
         : await supabase
             .from('child_profiles')
-            .insert({ parent_id: userId, display_name: displayName, age_band: ageBand })
-            .select('id, display_name, age_band, avatar_character_id, created_at')
+            .insert({ parent_id: userId, display_name: displayName, age_band: ageBand, avatar })
+            .select('id, display_name, age_band, avatar_character_id, avatar, created_at')
             .single();
 
       if (row.error) throw row.error;
@@ -38,6 +38,7 @@ Deno.serve(
         displayName: row.data.display_name,
         ageBand: row.data.age_band,
         avatarCharacterId: row.data.avatar_character_id,
+        avatar: row.data.avatar,
         createdAt: row.data.created_at,
       };
       const response = { child };

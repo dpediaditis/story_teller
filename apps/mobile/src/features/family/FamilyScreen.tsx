@@ -1,12 +1,16 @@
-import { Pressable, StyleSheet, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
+import type { ChildAvatar } from '@papercub/shared';
+import { CHILD_AVATAR_EMOJI, CHILD_AVATAR_LIST } from '@papercub/shared';
 import { Screen, Text, EyebrowLabel } from '../../components';
+import { apiClient } from '../../lib/api';
 import { useSession } from '../session/SessionProvider';
 import { colour, inkAlpha, radius, spacing } from '../../theme';
 
 /** F4 — Family. Parent-only zone; entry to the parental gate for anything destructive. */
 export function FamilyScreen() {
-  const { session } = useSession();
+  const { session, refresh } = useSession();
   const entitlement = session?.entitlement;
   const quota = session?.quota;
   const isFamily = entitlement?.tier === 'family';
@@ -17,12 +21,19 @@ export function FamilyScreen() {
         <Text variant="sectionHeading">Family</Text>
       </View>
 
-      <View style={styles.body}>
+      <ScrollView contentContainerStyle={styles.body}>
         {isFamily ? (
           <View style={styles.subCard}>
             <View style={{ flex: 1 }}>
               <EyebrowLabel color="rgba(246,241,231,.55)">SUBSCRIPTION</EyebrowLabel>
-              <Text variant="label" color={colour.paperElevated} style={{ marginTop: spacing.sm, fontSize: 19 }}>
+              <Text
+                variant="label"
+                color={colour.paperElevated}
+                /* fontSize alone leaves the variant's ~13px lineHeight in
+                   place, so at 19px the plan name climbed into the
+                   SUBSCRIPTION eyebrow above it. */
+                style={{ marginTop: spacing.sm, fontSize: 19, lineHeight: 25 }}
+              >
                 Papercub Family
               </Text>
               {quota?.periodEnd ? (
@@ -53,20 +64,7 @@ export function FamilyScreen() {
 
         <EyebrowLabel style={styles.sectionLabel}>CHILDREN</EyebrowLabel>
         {(session?.children ?? []).map((child) => (
-          <View key={child.id} style={styles.childRow}>
-            <View style={styles.avatar}>
-              <Text variant="label" color={colour.violetDeep}>
-                {(child.displayName ?? '?').slice(0, 1).toUpperCase()}
-              </Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text variant="body" style={{ fontWeight: '700' }}>{child.displayName ?? 'Unnamed'}</Text>
-              <Text variant="label" color={inkAlpha.textLabel}>
-                {child.ageBand.replace('_', '–')}
-              </Text>
-            </View>
-            <Text variant="button" color={inkAlpha.textFaint}>›</Text>
-          </View>
+          <ChildRow key={child.id} child={child} onChanged={refresh} />
         ))}
 
         <EyebrowLabel style={styles.sectionLabel}>SETTINGS</EyebrowLabel>
@@ -74,7 +72,7 @@ export function FamilyScreen() {
         <SettingsRow label="Manage subscription" onPress={() => {}} />
         <SettingsRow label="Account & sign-in" onPress={() => router.push('/tabs/family/account')} />
         <SettingsRow label="Help & support" onPress={() => {}} />
-      </View>
+      </ScrollView>
     </Screen>
   );
 }
@@ -88,9 +86,115 @@ function SettingsRow({ label, onPress }: { label: string; onPress: () => void })
   );
 }
 
+
+/**
+ * One child, with a picture they can actually recognise.
+ *
+ * This was the first letter of the display name in a circle — an adult
+ * convention. A child who cannot read yet cannot find themselves in a list of
+ * letters, and a child with no name set showed "?" beside "Unnamed".
+ *
+ * The picture is saved through `upsertChild` like any other field, so the
+ * server owns it and it survives a reinstall. Optimistic locally so the tap
+ * feels instant, then reconciled by refreshing the session.
+ */
+function ChildRow({
+  child,
+  onChanged,
+}: {
+  child: NonNullable<ReturnType<typeof useSession>['session']>['children'][number];
+  onChanged: () => Promise<void> | void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [avatar, setAvatar] = useState<ChildAvatar | null>(child.avatar);
+  const [saving, setSaving] = useState(false);
+
+  async function choose(next: ChildAvatar) {
+    const previous = avatar;
+    setAvatar(next);
+    setOpen(false);
+    setSaving(true);
+    try {
+      await apiClient.call('upsertChild', {
+        id: child.id,
+        displayName: child.displayName,
+        ageBand: child.ageBand,
+        avatar: next,
+      });
+      await onChanged();
+    } catch {
+      // Put it back rather than showing a picture the server did not accept.
+      setAvatar(previous);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <View>
+      <Pressable style={styles.childRow} onPress={() => setOpen((v) => !v)} disabled={saving}>
+        <View style={styles.avatar}>
+          {avatar ? (
+            <Text variant="sectionHeading">{CHILD_AVATAR_EMOJI[avatar]}</Text>
+          ) : (
+            <Text variant="label" color={colour.violetDeep}>
+              {(child.displayName ?? '?').slice(0, 1).toUpperCase()}
+            </Text>
+          )}
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text variant="body" style={{ fontWeight: '700' }}>{child.displayName ?? 'Unnamed'}</Text>
+          <Text variant="label" color={inkAlpha.textLabel}>
+            {child.ageBand.replace('_', '–')}
+          </Text>
+        </View>
+        <Text variant="button" color={inkAlpha.textFaint}>{open ? '⌄' : '›'}</Text>
+      </Pressable>
+
+      {open ? (
+        <View style={styles.avatarPicker}>
+          {CHILD_AVATAR_LIST.map((option) => (
+            <Pressable
+              key={option}
+              onPress={() => void choose(option)}
+              style={[styles.avatarOption, avatar === option && styles.avatarOptionActive]}
+            >
+              <Text variant="sectionHeading">{CHILD_AVATAR_EMOJI[option]}</Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  avatarPicker: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    paddingBottom: spacing.lgPlus,
+  },
+  avatarOption: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colour.paperCard,
+    borderWidth: 1,
+    borderColor: inkAlpha.border,
+  },
+  avatarOptionActive: { borderColor: colour.violetDeep, borderWidth: 2 },
   header: { paddingHorizontal: spacing.xxl, paddingTop: spacing.md, paddingBottom: spacing.lgPlus },
-  body: { paddingHorizontal: spacing.xxl, gap: spacing.md },
+  /* Was a plain View, so "Account & sign-in" and "Help & support" were below
+   * the fold with nothing to scroll — two settings rows that did not exist as
+   * far as a parent could tell. */
+  body: {
+    paddingHorizontal: spacing.xxl,
+    paddingBottom: spacing.section,
+    gap: spacing.md,
+  },
   subCard: {
     flexDirection: 'row',
     backgroundColor: colour.ink,

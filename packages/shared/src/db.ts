@@ -149,6 +149,7 @@ export type Database = {
       child_profiles: {
         Row: {
           age_band: Database["public"]["Enums"]["age_band"]
+          avatar: Database["public"]["Enums"]["child_avatar"] | null
           avatar_character_id: string | null
           created_at: string
           deleted_at: string | null
@@ -158,6 +159,7 @@ export type Database = {
         }
         Insert: {
           age_band: Database["public"]["Enums"]["age_band"]
+          avatar?: Database["public"]["Enums"]["child_avatar"] | null
           avatar_character_id?: string | null
           created_at?: string
           deleted_at?: string | null
@@ -167,6 +169,7 @@ export type Database = {
         }
         Update: {
           age_band?: Database["public"]["Enums"]["age_band"]
+          avatar?: Database["public"]["Enums"]["child_avatar"] | null
           avatar_character_id?: string | null
           created_at?: string
           deleted_at?: string | null
@@ -639,12 +642,14 @@ export type Database = {
           favourited_at: string | null
           id: string
           length: Database["public"]["Enums"]["story_length"]
+          locale: Database["public"]["Enums"]["story_locale"]
           model_bundle_version: string
           mood: Database["public"]["Enums"]["story_mood"]
           render_technique: Database["public"]["Enums"]["render_technique"]
           status: Database["public"]["Enums"]["story_status"]
           theme: Database["public"]["Enums"]["story_theme"]
           title: string | null
+          voice_id: Database["public"]["Enums"]["narration_voice"]
         }
         Insert: {
           character_tombstone?: boolean
@@ -656,12 +661,14 @@ export type Database = {
           favourited_at?: string | null
           id?: string
           length: Database["public"]["Enums"]["story_length"]
+          locale?: Database["public"]["Enums"]["story_locale"]
           model_bundle_version: string
           mood: Database["public"]["Enums"]["story_mood"]
           render_technique?: Database["public"]["Enums"]["render_technique"]
           status?: Database["public"]["Enums"]["story_status"]
           theme: Database["public"]["Enums"]["story_theme"]
           title?: string | null
+          voice_id?: Database["public"]["Enums"]["narration_voice"]
         }
         Update: {
           character_tombstone?: boolean
@@ -673,12 +680,14 @@ export type Database = {
           favourited_at?: string | null
           id?: string
           length?: Database["public"]["Enums"]["story_length"]
+          locale?: Database["public"]["Enums"]["story_locale"]
           model_bundle_version?: string
           mood?: Database["public"]["Enums"]["story_mood"]
           render_technique?: Database["public"]["Enums"]["render_technique"]
           status?: Database["public"]["Enums"]["story_status"]
           theme?: Database["public"]["Enums"]["story_theme"]
           title?: string | null
+          voice_id?: Database["public"]["Enums"]["narration_voice"]
         }
         Relationships: [
           {
@@ -1048,10 +1057,12 @@ export type Database = {
           p_child_id: string
           p_idempotency_key: string
           p_length: Database["public"]["Enums"]["story_length"]
+          p_locale?: Database["public"]["Enums"]["story_locale"]
           p_model_bundle_version: string
           p_mood: Database["public"]["Enums"]["story_mood"]
           p_render_technique: Database["public"]["Enums"]["render_technique"]
           p_theme: Database["public"]["Enums"]["story_theme"]
+          p_voice_id?: Database["public"]["Enums"]["narration_voice"]
         }
         Returns: Json
       }
@@ -1112,6 +1123,15 @@ export type Database = {
       auth_provider: "anonymous" | "apple" | "google"
       character_asset_kind: "cutout" | "reference_sheet" | "pose" | "style_ref"
       character_status: "draft" | "building" | "ready" | "failed" | "archived"
+      child_avatar:
+        | "fox"
+        | "rabbit"
+        | "panda"
+        | "frog"
+        | "unicorn"
+        | "octopus"
+        | "bee"
+        | "turtle"
       drawing_source: "camera" | "photos"
       entitlement_tier: "free" | "family"
       generation_stage:
@@ -1183,6 +1203,13 @@ export type Database = {
         | "page_illustration"
         | "narration"
       moderation_verdict: "pass" | "flag" | "block"
+      narration_voice:
+        | "papercub_default"
+        | "papercub_bramble"
+        | "papercub_pip"
+        | "papercub_juniper"
+        | "papercub_marlow"
+        | "papercub_fig"
       product_id:
         | "papercub_family_monthly"
         | "papercub_family_annual"
@@ -1202,6 +1229,14 @@ export type Database = {
       store_environment: "sandbox" | "production"
       story_character_role: "lead" | "companion"
       story_length: "short" | "normal" | "bedtime"
+      story_locale:
+        | "en-GB"
+        | "es-ES"
+        | "de-DE"
+        | "fr-FR"
+        | "it-IT"
+        | "el-GR"
+        | "nl-NL"
       story_mood: "funny" | "adventurous" | "calm"
       story_page_status:
         | "pending"
@@ -1828,6 +1863,16 @@ export const Constants = {
       auth_provider: ["anonymous", "apple", "google"],
       character_asset_kind: ["cutout", "reference_sheet", "pose", "style_ref"],
       character_status: ["draft", "building", "ready", "failed", "archived"],
+      child_avatar: [
+        "fox",
+        "rabbit",
+        "panda",
+        "frog",
+        "unicorn",
+        "octopus",
+        "bee",
+        "turtle",
+      ],
       drawing_source: ["camera", "photos"],
       entitlement_tier: ["free", "family"],
       generation_stage: [
@@ -1907,6 +1952,14 @@ export const Constants = {
         "narration",
       ],
       moderation_verdict: ["pass", "flag", "block"],
+      narration_voice: [
+        "papercub_default",
+        "papercub_bramble",
+        "papercub_pip",
+        "papercub_juniper",
+        "papercub_marlow",
+        "papercub_fig",
+      ],
       product_id: [
         "papercub_family_monthly",
         "papercub_family_annual",
@@ -1929,6 +1982,15 @@ export const Constants = {
       store_environment: ["sandbox", "production"],
       story_character_role: ["lead", "companion"],
       story_length: ["short", "normal", "bedtime"],
+      story_locale: [
+        "en-GB",
+        "es-ES",
+        "de-DE",
+        "fr-FR",
+        "it-IT",
+        "el-GR",
+        "nl-NL",
+      ],
       story_mood: ["funny", "adventurous", "calm"],
       story_page_status: [
         "pending",

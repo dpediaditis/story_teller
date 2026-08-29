@@ -25,7 +25,7 @@ import {
 } from '@papercub/shared';
 import { requireUser } from '../_shared/auth.ts';
 import { parseBody, parseQuery } from '../_shared/body.ts';
-import { toCharacterDto, toJobStatusDto } from '../_shared/dto.ts';
+import { toCharacterDto, toJobStatusDto, toPageIllustrationDto } from '../_shared/dto.ts';
 import { loadEntitlementAndQuota, loadRawUsage } from '../_shared/quota.ts';
 import { ApiFailure, ok, withEnvelope } from '../_shared/respond.ts';
 
@@ -97,11 +97,51 @@ Deno.serve(
           .eq('character_id', id),
         supabase
           .from('story_characters')
-          .select('story_id, stories(id, title, theme, mood, length, status, created_at, favourited_at, character_tombstone)')
+          .select(
+            'story_id, stories(id, title, theme, mood, length, status, created_at, favourited_at, character_tombstone, cover_asset_id)',
+          )
           .eq('character_id', id),
       ]);
       if (assetsError) throw assetsError;
       if (storiesError) throw storiesError;
+
+      /* `cover` and `pageCount` were hardcoded to null and 0 here, so every
+       * story row on the character screen rendered an empty grey rectangle
+       * where its cover belongs. The same DTO built by the `stories` function
+       * carries both; this one just never asked for them. One query for the
+       * whole list rather than one per story. */
+      const storyRows = (stories ?? [])
+        .map((row) => (row as unknown as { stories: Record<string, unknown> | null }).stories)
+        .filter((s): s is Record<string, unknown> => Boolean(s));
+
+      const coverIds = storyRows
+        .map((s) => s.cover_asset_id as string | null)
+        .filter((c): c is string => Boolean(c));
+
+      const [{ data: covers, error: coversError }, { data: pageRows, error: pageRowsError }] =
+        await Promise.all([
+          coverIds.length
+            ? supabase
+                .from('page_illustrations')
+                .select('id, page_index, storage_key, width, height')
+                .in('id', coverIds)
+            : Promise.resolve({ data: [], error: null }),
+          storyRows.length
+            ? supabase
+                .from('story_pages')
+                .select('story_id')
+                .in('story_id', storyRows.map((s) => s.id as string))
+            : Promise.resolve({ data: [], error: null }),
+        ]);
+      if (coversError) throw coversError;
+      if (pageRowsError) throw pageRowsError;
+
+      const coverById = new Map((covers ?? []).map((c) => [c.id as string, c]));
+      const pageCountByStory = new Map<string, number>();
+      for (const row of pageRows ?? []) {
+        const key = (row as { story_id: string }).story_id;
+        pageCountByStory.set(key, (pageCountByStory.get(key) ?? 0) + 1);
+      }
 
       const dto = await hydrateCharacter(supabase, character);
       const response = {
@@ -115,23 +155,20 @@ Deno.serve(
           widthPx: a.width_px,
           heightPx: a.height_px,
         })),
-        stories: (stories ?? [])
-          .map((row) => (row as unknown as { stories: Record<string, unknown> | null }).stories)
-          .filter((s): s is Record<string, unknown> => Boolean(s))
-          .map((s) => ({
-            id: s.id as string,
-            title: (s.title as string | null) ?? null,
-            theme: s.theme,
-            mood: s.mood,
-            length: s.length,
-            status: s.status,
-            cover: null,
-            characterNames: [dto.name],
-            characterTombstone: s.character_tombstone as boolean,
-            pageCount: 0,
-            createdAt: s.created_at as string,
-            favouritedAt: (s.favourited_at as string | null) ?? null,
-          })),
+        stories: storyRows.map((s) => ({
+          id: s.id as string,
+          title: (s.title as string | null) ?? null,
+          theme: s.theme,
+          mood: s.mood,
+          length: s.length,
+          status: s.status,
+          cover: toPageIllustrationDto(coverById.get(s.cover_asset_id as string) ?? null),
+          characterNames: [dto.name],
+          characterTombstone: s.character_tombstone as boolean,
+          pageCount: pageCountByStory.get(s.id as string) ?? 0,
+          createdAt: s.created_at as string,
+          favouritedAt: (s.favourited_at as string | null) ?? null,
+        })),
       };
       return ok(response);
     }
