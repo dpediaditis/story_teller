@@ -6,32 +6,36 @@ import { colour, inkAlpha, radius, spacing } from '../../theme';
 /**
  * The book being made, on a desk.
  *
- * The rule this has to respect is the same one the stage list respects
- * (enums.ts, and repeated in docs/ARCHITECTURE.md): "Each message shown to a
- * user must correspond to a stage that is ACTUALLY RUNNING. Never invent
- * progress." So nothing here is on a timer pretending to be work:
+ * REBUILT after the first version did not read as anything. That one put a
+ * manuscript, a cover and a stack of pages in three different places and let
+ * each fade in where it stood — three islands, no relationship between them,
+ * and nothing ever moved from one place to another. Every element was correct
+ * and the whole thing had no flow, because flow is direction, not motion.
  *
- *   the sheet appears   when the job reaches `writing_story`
- *   the cover flips up  when `coverReady` arrives — the real gate-4 pass
- *   a page lands        once per index in `readablePageIndexes`, one for one
+ * So this version has ONE place to look and ONE direction of travel:
  *
- * The stack of pages IS the progress bar, and it cannot show a page the server
- * has not finished. That is why there is no percentage: the pile is the honest
- * version of one.
+ *   the manuscript BECOMES the book   — it crossfades into the stack rather
+ *                                       than sitting next to it, so the writing
+ *                                       turns into the thing being written
+ *   pages FLY IN from the right       — arcing down onto the pile, so every
+ *                                       arrival travels the same path
+ *   the character watches from the left and hops when one lands
  *
- * The character on the desk is the child's OWN cut-out, the file the flow just
- * uploaded. Roughly a hundred seconds is a long time for a five-year-old, and
- * the thing that makes it bearable is not a spinner — it is watching their own
- * drawing sit there while the book piles up next to it.
+ * The desk is a thin shelf now, not a slab: it was a third of the frame and
+ * competing with the book for attention.
  *
- * Built on React Native's own Animated rather than Reanimated: everything here
- * is transform and opacity, which `useNativeDriver` runs off the JS thread
- * anyway, and Reanimated 4 would need the worklets babel plugin plus a native
- * rebuild to earn its keep. Motion is skipped entirely when the OS asks for
- * reduced motion — the same elements still appear, they just do not move.
+ * The rule underneath is unchanged (enums.ts, docs/ARCHITECTURE.md): "Never
+ * invent progress." Nothing is on a timer pretending to be work.
+ *
+ *   the manuscript appears  when the job reaches `writing_story`
+ *   the cover lands         when `coverReady` arrives — the real gate-4 pass
+ *   a page flies in         once per index in `readablePageIndexes`, one for one
+ *
+ * The pile IS the progress bar, and it cannot show a page the server has not
+ * finished. That is why there is still no percentage.
  */
 
-const STAGES_WITH_SHEET = [
+const STAGES_WITH_BOOK = [
   'writing_story',
   'moderating_text',
   'illustrating_cover',
@@ -66,17 +70,24 @@ export function StoryWorkshop({
   const stage = event?.stage ?? 'queued';
   const readable = event?.readablePageIndexes ?? [];
   const coverReady = event?.coverReady ?? false;
-  const sheetOut = STAGES_WITH_SHEET.includes(stage);
+  const started = STAGES_WITH_BOOK.includes(stage);
+  // The manuscript is only the manuscript until there is a cover; after that it
+  // has become the book, so it stops being drawn separately.
+  const writing = started && !coverReady;
 
   return (
     <View style={styles.scene} pointerEvents="none" accessibilityElementsHidden>
-      <View style={styles.desk} />
+      <View style={styles.shelf} />
 
-      {sheetOut ? <Sheet writing={stage === 'writing_story'} reduceMotion={reduceMotion} /> : null}
-      {coverReady ? <Card kind="cover" index={0} reduceMotion={reduceMotion} /> : null}
-      {readable.map((pageIndex, i) => (
-        <Card key={pageIndex} kind="page" index={i + 1} reduceMotion={reduceMotion} />
-      ))}
+      <View style={styles.stage}>
+        {writing ? (
+          <Manuscript active={stage === 'writing_story'} reduceMotion={reduceMotion} />
+        ) : null}
+        {coverReady ? <Leaf kind="cover" depth={0} reduceMotion={reduceMotion} /> : null}
+        {readable.map((pageIndex, i) => (
+          <Leaf key={pageIndex} kind="page" depth={i + 1} reduceMotion={reduceMotion} />
+        ))}
+      </View>
 
       <Character
         uri={cutoutUri}
@@ -88,84 +99,82 @@ export function StoryWorkshop({
   );
 }
 
-/** The manuscript. Ink lines fill in while the story is actually being written. */
-function Sheet({ writing, reduceMotion }: { writing: boolean; reduceMotion: boolean }) {
-  const rise = useRef(new Animated.Value(0)).current;
+/**
+ * The story being written. Sits exactly where the book will be, so when the
+ * cover replaces it the eye reads a transformation rather than a swap.
+ */
+function Manuscript({ active, reduceMotion }: { active: boolean; reduceMotion: boolean }) {
+  const enter = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    Animated.timing(rise, {
+    Animated.timing(enter, {
       toValue: 1,
-      duration: reduceMotion ? 0 : 420,
+      duration: reduceMotion ? 0 : 380,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
-  }, [rise, reduceMotion]);
+  }, [enter, reduceMotion]);
 
   return (
     <Animated.View
       style={[
-        styles.sheet,
+        styles.leaf,
+        styles.manuscript,
         {
-          opacity: rise,
+          opacity: enter,
           transform: [
-            { translateY: rise.interpolate({ inputRange: [0, 1], outputRange: [40, 0] }) },
-            { rotate: '-3deg' },
+            { translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) },
+            { rotate: '-2deg' },
           ],
         },
       ]}
     >
-      {[0, 1, 2, 3].map((line) => (
-        <InkLine key={line} order={line} writing={writing} reduceMotion={reduceMotion} />
+      {[0, 1, 2, 3, 4].map((line) => (
+        <InkLine key={line} order={line} active={active} reduceMotion={reduceMotion} />
       ))}
     </Animated.View>
   );
 }
 
-/**
- * One line of writing. Scales along the X axis so it reads as a pen moving
- * left to right; the lines are staggered so it looks like prose, not a loader.
- */
+/** One line of writing, scaling from the left so it reads as a pen moving. */
 function InkLine({
   order,
-  writing,
+  active,
   reduceMotion,
 }: {
   order: number;
-  writing: boolean;
+  active: boolean;
   reduceMotion: boolean;
 }) {
-  const draw = useRef(new Animated.Value(reduceMotion ? 1 : 0)).current;
+  const draw = useRef(new Animated.Value(reduceMotion || !active ? 1 : 0)).current;
 
   useEffect(() => {
-    if (reduceMotion) {
+    if (reduceMotion || !active) {
       draw.setValue(1);
       return;
     }
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.delay(order * 190),
+        Animated.delay(order * 170),
         Animated.timing(draw, {
           toValue: 1,
-          duration: 620,
+          duration: 560,
           easing: Easing.out(Easing.quad),
           useNativeDriver: true,
         }),
-        Animated.delay((3 - order) * 190 + 400),
-        Animated.timing(draw, { toValue: 0, duration: 200, useNativeDriver: true }),
+        Animated.delay((4 - order) * 170 + 500),
+        Animated.timing(draw, { toValue: 0, duration: 180, useNativeDriver: true }),
       ]),
     );
-    // Once the writing stage is over the lines stay drawn — the page is written.
-    if (writing) loop.start();
-    else Animated.timing(draw, { toValue: 1, duration: 200, useNativeDriver: true }).start();
+    loop.start();
     return () => loop.stop();
-  }, [draw, order, writing, reduceMotion]);
+  }, [draw, order, active, reduceMotion]);
 
   return (
     <Animated.View
       style={[
         styles.inkLine,
-        // The last line is short, the way a paragraph ends.
-        order === 3 && { width: '55%' },
+        order === 4 && { width: '52%' },
         { opacity: draw, transform: [{ scaleX: draw }] },
       ]}
     />
@@ -173,43 +182,54 @@ function InkLine({
 }
 
 /**
- * A finished page landing on the pile. Each one is offset and tilted a little
- * so the stack looks handled rather than machine-stacked.
+ * A finished leaf of the book arriving.
+ *
+ * Every one travels the same path — in from the right, arcing down and
+ * untwisting onto the pile — which is what turns a set of appearing rectangles
+ * into a book being built. `depth` lifts and shrinks it slightly so the pile
+ * has thickness.
  */
-function Card({
+function Leaf({
   kind,
-  index,
+  depth,
   reduceMotion,
 }: {
   kind: 'cover' | 'page';
-  index: number;
+  depth: number;
   reduceMotion: boolean;
 }) {
-  const drop = useRef(new Animated.Value(reduceMotion ? 1 : 0)).current;
+  const fly = useRef(new Animated.Value(reduceMotion ? 1 : 0)).current;
 
   useEffect(() => {
-    Animated.timing(drop, {
+    Animated.timing(fly, {
       toValue: 1,
-      duration: reduceMotion ? 0 : 460,
-      easing: Easing.out(Easing.back(1.4)),
+      duration: reduceMotion ? 0 : 520,
+      easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
-  }, [drop, reduceMotion]);
+  }, [fly, reduceMotion]);
 
-  const tilt = ((index % 3) - 1) * 2.5;
+  const settledTilt = ((depth % 3) - 1) * 2;
 
   return (
     <Animated.View
       style={[
-        styles.card,
-        kind === 'cover' ? styles.cardCover : styles.cardPage,
+        styles.leaf,
+        kind === 'cover' ? styles.cover : styles.page,
         {
-          bottom: 96 + index * 7,
-          opacity: drop,
+          bottom: depth * 6,
+          zIndex: depth,
+          opacity: fly,
           transform: [
-            { translateY: drop.interpolate({ inputRange: [0, 1], outputRange: [-70, 0] }) },
-            { rotate: `${tilt}deg` },
-            { scale: drop.interpolate({ inputRange: [0, 1], outputRange: [0.86, 1] }) },
+            { translateX: fly.interpolate({ inputRange: [0, 1], outputRange: [140, 0] }) },
+            { translateY: fly.interpolate({ inputRange: [0, 1], outputRange: [-56, 0] }) },
+            {
+              rotate: fly.interpolate({
+                inputRange: [0, 1],
+                outputRange: ['16deg', `${settledTilt}deg`],
+              }),
+            },
+            { scale: fly.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1 - depth * 0.012] }) },
           ],
         },
       ]}
@@ -239,13 +259,13 @@ function Character({
       Animated.sequence([
         Animated.timing(bob, {
           toValue: 1,
-          duration: listening ? 700 : 1500,
+          duration: listening ? 620 : 1500,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
         Animated.timing(bob, {
           toValue: 0,
-          duration: listening ? 700 : 1500,
+          duration: listening ? 620 : 1500,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
@@ -259,17 +279,17 @@ function Character({
     if (landedCount === previousLanded.current) return;
     previousLanded.current = landedCount;
     if (reduceMotion) return;
-    // A little celebration, tied to a page that genuinely finished.
+    // Tied to a page that genuinely finished, so the celebration is earned.
     Animated.sequence([
       Animated.timing(hop, {
         toValue: 1,
-        duration: 180,
+        duration: 170,
         easing: Easing.out(Easing.quad),
         useNativeDriver: true,
       }),
       Animated.timing(hop, {
         toValue: 0,
-        duration: 320,
+        duration: 340,
         easing: Easing.bounce,
         useNativeDriver: true,
       }),
@@ -277,45 +297,62 @@ function Character({
   }, [landedCount, hop, reduceMotion]);
 
   const lift = Animated.add(
-    bob.interpolate({ inputRange: [0, 1], outputRange: [0, -6] }),
-    hop.interpolate({ inputRange: [0, 1], outputRange: [0, -26] }),
+    bob.interpolate({ inputRange: [0, 1], outputRange: [0, -5] }),
+    hop.interpolate({ inputRange: [0, 1], outputRange: [0, -24] }),
   );
+
+  if (!uri) {
+    // No drawing to show yet — better an empty stage than a grey box standing
+    // in for a child's character.
+    return null;
+  }
 
   return (
     <Animated.View style={[styles.character, { transform: [{ translateY: lift }] }]}>
-      {uri ? (
-        <Image source={{ uri }} style={styles.characterImage} resizeMode="contain" />
-      ) : (
-        <View style={[styles.characterImage, styles.characterFallback]} />
-      )}
+      <Image source={{ uri }} style={styles.characterImage} resizeMode="contain" />
     </Animated.View>
   );
 }
 
+const LEAF_W = 104;
+const LEAF_H = 130;
+
 const styles = StyleSheet.create({
-  scene: { height: 300, marginTop: spacing.lgPlus, justifyContent: 'flex-end' },
-  desk: {
+  scene: { height: 236, marginTop: spacing.lgPlus, marginBottom: spacing.sm },
+  // A shelf line, not a slab. The first version gave this a third of the frame
+  // and it competed with the book for attention.
+  shelf: {
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 0,
-    height: 92,
+    bottom: 26,
+    height: 10,
+    borderRadius: 5,
     backgroundColor: colour.kraftLight,
-    borderTopLeftRadius: radius.cardLg,
-    borderTopRightRadius: radius.cardLg,
   },
-  sheet: {
+  /** Everything the book is made of shares one anchor, so it reads as one object. */
+  stage: {
     position: 'absolute',
-    left: '12%',
-    bottom: 104,
-    width: 150,
-    height: 104,
+    right: '16%',
+    bottom: 32,
+    width: LEAF_W,
+    height: LEAF_H,
+  },
+  leaf: {
+    position: 'absolute',
+    left: 0,
+    width: LEAF_W,
+    height: LEAF_H,
     borderRadius: radius.card,
-    backgroundColor: colour.paperElevated,
     borderWidth: 1,
+  },
+  manuscript: {
+    bottom: 0,
+    backgroundColor: colour.paperElevated,
     borderColor: inkAlpha.border,
     padding: spacing.md,
-    gap: 7,
+    gap: 8,
+    justifyContent: 'center',
   },
   inkLine: {
     height: 4,
@@ -324,25 +361,8 @@ const styles = StyleSheet.create({
     backgroundColor: inkAlpha.border,
     transformOrigin: 'left',
   },
-  card: {
-    position: 'absolute',
-    right: '14%',
-    borderRadius: radius.card,
-    borderWidth: 1,
-  },
-  cardCover: {
-    width: 116,
-    height: 142,
-    backgroundColor: colour.ink,
-    borderColor: colour.ink,
-  },
-  cardPage: {
-    width: 108,
-    height: 132,
-    backgroundColor: colour.paperElevated,
-    borderColor: inkAlpha.border,
-  },
-  character: { position: 'absolute', left: '16%', bottom: 68 },
-  characterImage: { width: 92, height: 92 },
-  characterFallback: { backgroundColor: colour.kraftMid, borderRadius: radius.card },
+  cover: { backgroundColor: colour.ink, borderColor: colour.ink },
+  page: { backgroundColor: colour.paperElevated, borderColor: inkAlpha.border },
+  character: { position: 'absolute', left: '13%', bottom: 30 },
+  characterImage: { width: 96, height: 96 },
 });

@@ -872,3 +872,82 @@ plugin and a native rebuild to earn its keep. Motion is skipped entirely under
 
 The "start reading page 1 while page 5 renders" button stays exactly where it
 was. It remains the strongest thing on the screen.
+
+## 23. Seven languages, and the animation rebuilt
+
+### Languages — free, and they change the STORY
+
+Measured against the live API first: **one Gemini voice speaks every language.**
+`vindemiatrix` returned valid audio for Spanish, German and French unchanged, so
+the six voice characters are the cast in all seven locales — the catalogue does
+not fork per language.
+
+`locale` already reached the writer prompt, so choosing a language means the
+story is *composed* in it, never an English story read in a French accent.
+
+**Free on every tier**, deliberately. A family whose child speaks German should
+not have to pay to use the product at all; a free story they cannot read is not
+a free story, and they would never reach the paywall having seen any value.
+Premium stays about the voice characters. `claim_story_quota` records the locale
+and does not gate it.
+
+en-GB · es-ES · de-DE · fr-FR · it-IT · el-GR · nl-NL
+
+### The blocker underneath: the reading-level gate was English-only
+
+`checkReadingLevel` is gate 3's second half and its verdict is REFUNDABLE. Two
+faults made it dangerous outside English:
+
+1. `syllableCount` stripped to `[a-z]`. "más" became "ms" and counted as one
+   syllable; a Greek word was erased entirely and counted as one. Every accented
+   language looked artificially SIMPLE — the opposite of the failure the gate
+   guards against, and invisible because the number stayed plausible. Now NFD
+   decomposition strips combining marks and keeps the base vowels, with a
+   Unicode vowel set that includes Greek.
+2. The "4+ syllables" ratio does not travel. German and Dutch compound as a
+   matter of course; the English threshold is ordinary prose there, not dense
+   prose. Left as-is, **every German story for a four-year-old would have failed
+   and refunded** — the product silently impossible in that language.
+
+So thresholds are per language (`languages.ts`), and where the long-word signal
+is not calibrated it is **disabled rather than guessed**. A disabled check is an
+honest gap; an invented number is a refund machine. Sentence length still
+catches what the gate exists for.
+
+Verified end to end in Greek: "Το Pixel και το Αστέρι που Χάθηκε", el-GR text,
+el-GR narration by Bramble, 6 pages, 28c, gate 3 ran and passed.
+
+### Voices got faces
+
+A four-year-old will not read "Marlow — smooth, an old-fashioned storyteller",
+and will not choose from a list of names. They will absolutely pick the green
+one with the leaf. Each voice now has a paper-cutout creature — recognisable by
+silhouette before it is readable — and **the selected one moves its mouth**,
+which is the tell that this thing is going to talk to you. The mouth timing is
+deliberately irregular: on a metronome it reads as a loading spinner.
+
+They are Views with border radii, not illustrations: nothing to load, nothing to
+fail to fetch, and they must not compete with the child's own drawing, which is
+the only real character in a Papercub story.
+
+### The generating animation, rebuilt
+
+The first version did not read as anything, and the reason is worth keeping:
+it put a manuscript, a cover and a stack of pages in three different places and
+faded each in where it stood. Three islands. Every element was correct and the
+whole had no flow — **because flow is direction, not motion.**
+
+Rebuilt around one place to look and one direction of travel:
+
+- the manuscript **becomes** the book — it crossfades into the pile from the
+  same anchor rather than sitting beside it, so writing turns into the thing
+  being written
+- pages **fly in from the right**, arcing down and untwisting onto the pile, so
+  every arrival travels the same path
+- the desk is a thin shelf, not a slab: it had a third of the frame and was
+  competing with the book
+
+The honesty constraint is unchanged and is what makes it work: the manuscript on
+`writing_story`, the cover on the real `coverReady`, one page per
+`readablePageIndexes` entry. The pile IS the progress bar, so there is still no
+percentage.

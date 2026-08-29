@@ -171,6 +171,7 @@ async function createStory(req: Request, supabase: SupabaseClient<Database>, use
     p_render_technique: 'cutout_rerender',
     p_model_bundle_version: MODEL_BUNDLE_VERSION,
     p_voice_id: body.voiceId,
+    p_locale: body.locale,
     p_idempotency_key: body.idempotencyKey,
   });
   if (claimError) {

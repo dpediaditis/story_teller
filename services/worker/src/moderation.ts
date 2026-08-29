@@ -18,6 +18,7 @@
 import { asUntrustedText } from '@papercub/shared';
 import type {
   AgeBand,
+  StoryLocale,
   ModerationAction,
   ModerationStage,
   ModerationSubjectType,
@@ -221,7 +222,7 @@ export interface OutputTextPage {
 
 export async function gateOutputText(
   ctx: GateContext,
-  args: { storyId: string; pages: OutputTextPage[]; ageBand: AgeBand },
+  args: { storyId: string; pages: OutputTextPage[]; ageBand: AgeBand; locale: StoryLocale },
 ): Promise<void> {
   for (const page of args.pages) {
     const subjectId = `${args.storyId}:${page.index}`;
@@ -252,7 +253,7 @@ export async function gateOutputText(
   // Reading level, over the whole story: one long sentence is noise, a story
   // written at the wrong level is not.
   const wholeStory = args.pages.map((p) => p.text).join(' ');
-  const level = checkReadingLevel(wholeStory, args.ageBand);
+  const level = checkReadingLevel(wholeStory, args.ageBand, args.locale);
 
   await record(ctx, {
     subjectType: 'story_page_text',

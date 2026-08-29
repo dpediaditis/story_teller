@@ -141,7 +141,7 @@ const stories: StoryDetailDto[] = [
       sentenceLevelOnly: true,
       durationMs: 92_000,
       voiceId: 'papercub_default',
-      language: 'en',
+      language: 'en-GB',
     },
     activeJob: null,
     renderTechnique: 'cutout_rerender',
@@ -175,7 +175,7 @@ const stories: StoryDetailDto[] = [
       sentenceLevelOnly: true,
       durationMs: 140_000,
       voiceId: 'papercub_default',
-      language: 'en',
+      language: 'en-GB',
     },
     activeJob: null,
     renderTechnique: 'cutout_rerender',
@@ -579,7 +579,7 @@ export const mockApiClient: ApiClient = {
             sentenceLevelOnly: true,
             durationMs: shape.pageCount * 15_000,
             voiceId: 'papercub_default',
-            language: 'en',
+            language: 'en-GB',
           };
           story.activeJob = null;
         }, GENERATION_STAGE_ORDER.length * 900 + shape.pageCount * 900 + 500);

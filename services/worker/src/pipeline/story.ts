@@ -163,6 +163,8 @@ export async function runStoryGenerate(args: StoryRunArgs): Promise<void> {
     storyId: job.storyId,
     pages: orderedPages.map((p) => ({ index: p.index, text: p.text })),
     ageBand: job.ageBand,
+    // The gate's thresholds are calibrated per language — see languages.ts.
+    locale: job.locale,
   });
 
   const pageRows: StoryPageRow[] = orderedPages.map((p) => ({

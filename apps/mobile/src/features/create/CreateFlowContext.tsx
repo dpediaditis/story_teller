@@ -3,11 +3,12 @@ import type { IsolateResult } from '@papercub/vision-module';
 import type {
   DrawingSource,
   NarrationVoiceId,
+  StoryLocale,
   StoryLength,
   StoryMood,
   StoryTheme,
 } from '@papercub/shared';
-import { DEFAULT_NARRATION_VOICE_ID } from '@papercub/shared';
+import { DEFAULT_NARRATION_VOICE_ID, DEFAULT_STORY_LOCALE } from '@papercub/shared';
 
 /**
  * In-memory scratch state for one pass through the create flow (Camera →
@@ -47,6 +48,7 @@ interface Draft {
   mood: StoryMood;
   length: StoryLength;
   voiceId: NarrationVoiceId;
+  locale: StoryLocale;
   storyId: string | null;
   jobId: string | null;
 }
@@ -74,6 +76,7 @@ const initialDraft: Draft = {
   mood: 'adventurous',
   length: 'short',
   voiceId: DEFAULT_NARRATION_VOICE_ID,
+  locale: DEFAULT_STORY_LOCALE,
   storyId: null,
   jobId: null,
 };

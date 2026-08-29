@@ -16,7 +16,8 @@
  * story and a refund, so it is tuned to catch the gross failure only.
  */
 
-import type { AgeBand } from '@papercub/shared';
+import type { AgeBand, StoryLocale } from '@papercub/shared';
+import { DEFAULT_STORY_LOCALE, STORY_LANGUAGES } from '@papercub/shared';
 
 export interface ReadingLevelThresholds {
   /** Mean words per sentence across the page. */
@@ -55,18 +56,46 @@ function words(text: string): string[] {
 /**
  * Vowel-group syllable count. Crude, and adequate: it is used only as a
  * relative "is this word long" signal, never reported as a linguistic fact.
+ *
+ * Unicode-aware, which it was not. It used to strip to `[a-z]`, so "más"
+ * became "ms" and counted as one syllable, and a Greek word was erased
+ * entirely and counted as one. Every accented language therefore looked
+ * artificially SIMPLE — the opposite of the failure the gate guards against,
+ * and invisible because the number it produced was still plausible.
+ *
+ * NFD decomposition splits an accented letter into its base plus a combining
+ * mark, so stripping marks leaves the base vowel behind and the count survives.
  */
+const VOWELS = /[aeiouyαεηιουω]+/g;
+
 export function syllableCount(word: string): number {
-  const w = word.toLowerCase().replace(/[^a-z]/g, '');
+  const w = word
+    .toLowerCase()
+    .normalize('NFD')
+    // Strip combining marks (accents, tonos, diaeresis) but keep the letters.
+    .replace(/\p{M}+/gu, '')
+    .replace(/[^\p{L}]/gu, '');
   if (w.length === 0) return 1;
-  const groups = w.match(/[aeiouy]+/g);
+  const groups = w.match(VOWELS);
   let n = groups ? groups.length : 1;
+  // English silent-e. Harmless elsewhere: a trailing 'e' that follows a
+  // consonant is not a syllable in French either.
   if (w.length > 2 && w.endsWith('e') && !/[aeiouy]e$/.test(w)) n -= 1;
   return Math.max(1, n);
 }
 
-export function checkReadingLevel(text: string, ageBand: AgeBand): ReadingLevelResult {
-  const limits = READING_LEVEL[ageBand];
+export function checkReadingLevel(
+  text: string,
+  ageBand: AgeBand,
+  locale: StoryLocale = DEFAULT_STORY_LOCALE,
+): ReadingLevelResult {
+  const base = READING_LEVEL[ageBand];
+  const profile = (STORY_LANGUAGES[locale] ?? STORY_LANGUAGES[DEFAULT_STORY_LOCALE]).reading;
+  const limits: ReadingLevelThresholds = {
+    maxMeanWordsPerSentence: base.maxMeanWordsPerSentence * profile.sentenceLengthFactor,
+    maxWordsInAnySentence: base.maxWordsInAnySentence * profile.sentenceLengthFactor,
+    maxLongWordRatio: base.maxLongWordRatio * (profile.longWordRatioFactor ?? 1),
+  };
   const sentences = splitSentences(text);
   const allWords = words(text);
   const failures: string[] = [];
@@ -89,7 +118,14 @@ export function checkReadingLevel(text: string, ageBand: AgeBand): ReadingLevelR
 
   if (meanWordsPerSentence > limits.maxMeanWordsPerSentence) failures.push('mean_sentence_length');
   if (longestSentenceWords > limits.maxWordsInAnySentence) failures.push('longest_sentence');
-  if (longWordRatio > limits.maxLongWordRatio) failures.push('long_word_ratio');
+  /* Only where the threshold means something. In a compounding language the
+   * English-derived number is ordinary prose, not dense prose, and this verdict
+   * is REFUNDABLE — a wrong threshold here does not nag, it makes the product
+   * quietly impossible in that language, one refunded story at a time. A
+   * disabled check is an honest gap; an invented number is a refund machine. */
+  if (profile.longWordRatioFactor !== null && longWordRatio > limits.maxLongWordRatio) {
+    failures.push('long_word_ratio');
+  }
 
   return {
     ok: failures.length === 0,

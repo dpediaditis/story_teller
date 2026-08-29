@@ -69,6 +69,19 @@ to embarrass the product, and the one the Simulator will not answer honestly.
 Milestone 0 bar: >85% clean isolation on crayon/marker, >60% on pencil, across
 20+ real children's drawings.
 
+## Languages
+
+Seven, all free on every tier (`DECISIONS.md` §23): English, Español, Deutsch,
+Français, Italiano, Ελληνικά, Nederlands. Choosing one changes the STORY, not
+just the narration — `locale` drives the writer prompt, the narration and the
+reading-level thresholds. One Gemini voice speaks all of them, so the six voice
+characters are the cast everywhere. Verified end to end in Greek.
+
+**The reading-level gate is calibrated per language** and its long-word signal
+is DISABLED for German, Dutch and Greek rather than guessed at — the verdict is
+refundable, so a wrong threshold makes the product silently impossible in that
+language.
+
 ## Narration voices
 
 Six, one free (`DECISIONS.md` §21). **Ivy** is free; Bramble, Pip, Juniper,

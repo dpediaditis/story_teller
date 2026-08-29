@@ -1,7 +1,13 @@
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
-import { NARRATION_VOICE_LIST, STORY_SHAPE, isVoiceAllowedForTier } from '@papercub/shared';
+import {
+  NARRATION_VOICE_LIST,
+  STORY_LANGUAGE_LIST,
+  STORY_SHAPE,
+  isVoiceAllowedForTier,
+} from '@papercub/shared';
+import { VoiceCreature } from './VoiceCreature';
 import { Screen, Text, TopBar, Button, EyebrowLabel } from '../../components';
 import { useCreateFlow } from './CreateFlowContext';
 import { useSession } from '../session/SessionProvider';
@@ -36,6 +42,7 @@ export function ConfirmScreen() {
     try {
       const res = await apiClient.call('createStory', {
         voiceId: draft.voiceId,
+        locale: draft.locale,
         childId: session?.children[0]?.id ?? '',
         characters: [{ characterId: draft.characterId, role: 'lead' }],
         theme: draft.theme,
@@ -82,6 +89,32 @@ export function ConfirmScreen() {
             what enforces anything — claim_story_quota re-checks the tier in SQL
             and refuses, so a client that ignored this could still not get a
             premium voice (DECISIONS.md §8). */}
+        {/* Language first: it changes the STORY, not just the narration, so it
+            is the bigger choice and belongs above the voice. Free on every tier
+            — a family that cannot read the free story has not been given one. */}
+        <EyebrowLabel style={{ marginTop: spacing.section }}>LANGUAGE</EyebrowLabel>
+        <ScrollView
+          horizontal
+          style={{ flexGrow: 0 }}
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.voiceRow}
+        >
+          {STORY_LANGUAGE_LIST.map((lang) => {
+            const selected = draft.locale === lang.locale;
+            return (
+              <Pressable
+                key={lang.locale}
+                onPress={() => update({ locale: lang.locale })}
+                style={[styles.lang, selected && styles.voiceSelected]}
+              >
+                <Text variant="label" color={selected ? colour.paperElevated : colour.ink}>
+                  {lang.displayName}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
         <EyebrowLabel style={{ marginTop: spacing.section }}>READ ALOUD BY</EyebrowLabel>
         <ScrollView
           horizontal
@@ -105,6 +138,10 @@ export function ConfirmScreen() {
                 }
                 style={[styles.voice, selected && styles.voiceSelected]}
               >
+                {/* The face is the affordance. A four-year-old will not read
+                    "smooth, an old-fashioned storyteller" — they will pick the
+                    purple one, and the selected one moves its mouth. */}
+                <VoiceCreature voiceId={voice.id} speaking={selected} />
                 <Text variant="label" color={selected ? colour.paperElevated : colour.ink}>
                   {voice.displayName}
                   {unlocked ? '' : ' ·'}
@@ -164,8 +201,17 @@ const styles = StyleSheet.create({
     backgroundColor: colour.paperCard,
     minWidth: 132,
     gap: 2,
+    alignItems: 'center',
   },
   voiceSelected: { backgroundColor: colour.ink, borderColor: colour.ink },
+  lang: {
+    paddingHorizontal: spacing.lgPlus,
+    paddingVertical: spacing.md,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: inkAlpha.border,
+    backgroundColor: colour.paperCard,
+  },
   body: { flex: 1, padding: spacing.xxl },
   card: { backgroundColor: colour.paperCard, borderRadius: radius.cardLg, padding: spacing.huge, marginTop: spacing.section, gap: spacing.sm },
   row: { flexDirection: 'row', justifyContent: 'space-between' },

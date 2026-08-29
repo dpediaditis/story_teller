@@ -20,6 +20,7 @@
 
 import { z } from 'zod';
 import { DEFAULT_NARRATION_VOICE_ID, NarrationVoiceId } from './voices.ts';
+import { DEFAULT_STORY_LOCALE, StoryLocale } from './languages.ts';
 import {
   AgeBand, AuthProvider, CharacterAssetKind, CharacterStatus, DrawingSource,
   EntitlementTier, GenerationStage, IsolationMethod, JobStatus, JobType,
@@ -177,7 +178,7 @@ export const NarrationDto = z.object({
   sentenceLevelOnly: z.boolean(),
   durationMs: z.number().int(),
   voiceId: NarrationVoiceId,
-  language: z.string(),
+  language: StoryLocale,
 });
 
 export const StorySummaryDto = z.object({
@@ -406,6 +407,12 @@ export const CreateStoryRequest = z.object({
    * different voice from the one chosen is worse than saying no.
    */
   voiceId: NarrationVoiceId.default(DEFAULT_NARRATION_VOICE_ID),
+  /**
+   * The language the story is WRITTEN and read aloud in — not a narration
+   * setting. Free on every tier (languages.ts): a family that cannot read the
+   * free story has not been given one.
+   */
+  locale: StoryLocale.default(DEFAULT_STORY_LOCALE),
   /** Client-generated, stable across retries of the same user intent. */
   idempotencyKey: IdempotencyKey,
 });
@@ -635,7 +642,7 @@ export const StoryGenerateJobPayload = JobPayloadBase.extend({
   /** From child_profiles.age_band. Drives vocabulary. Never a birth date. */
   ageBand: AgeBand,
   renderTechnique: RenderTechnique,
-  locale: z.string(),
+  locale: StoryLocale,
   /** Chosen at claim time and already checked against the tier there. */
   voiceId: NarrationVoiceId.default(DEFAULT_NARRATION_VOICE_ID),
 });
