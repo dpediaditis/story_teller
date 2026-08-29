@@ -49,7 +49,22 @@ export function CharacterDetailScreen({ characterId }: { characterId: string }) 
             <View style={{ marginTop: spacing.huge }}>
               <Button
                 label="Make a story"
-                onPress={() => router.push(`/create/adventure?characterId=${character.id}`)}
+                /* The NAME travels with the id. Starting a story from an
+                 * existing character skips the create-flow screens that would
+                 * normally populate the draft, so `draft.characterName` was
+                 * empty and the confirm screen rendered " goes to Space — a
+                 * short adventurous story." with a gap where the name belongs.
+                 *
+                 * Passed as a route param rather than written into the draft
+                 * here: this screen lives under `tabs`, which is OUTSIDE
+                 * CreateFlowProvider, so useCreateFlow() throws here. The
+                 * adventure screen is inside it and does the write. */
+                onPress={() =>
+                  router.push(
+                    `/create/adventure?characterId=${character.id}` +
+                      `&characterName=${encodeURIComponent(character.name)}`,
+                  )
+                }
               />
             </View>
             <EyebrowLabel style={{ marginTop: spacing.section }}>

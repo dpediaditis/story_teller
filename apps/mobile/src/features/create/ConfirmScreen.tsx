@@ -63,7 +63,10 @@ export function ConfirmScreen() {
       <TopBar onBack={() => router.back()} />
       <View style={styles.body}>
         <Text variant="sectionHeading">
-          {draft.characterName} goes to {THEME_LABEL[draft.theme ?? 'space']} — a {draft.length} {draft.mood} story.
+          {/* Fallback matches AdventureScreen's. Without it an empty name
+              renders a leading space and the sentence starts mid-air. */}
+          {draft.characterName || 'Your character'} goes to{' '}
+          {THEME_LABEL[draft.theme ?? 'space']} — a {draft.length} {draft.mood} story.
         </Text>
 
         <View style={styles.card}>

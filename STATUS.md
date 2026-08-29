@@ -162,11 +162,24 @@ reservation released to 0, **6.86c** — matching the earlier measurement. The
 worker read exactly the object the client uploaded, which is the step that was
 previously impossible.
 
-**Verified from the app UI too**, end to end on the simulator: pick from the
-photo library -> isolate -> upload -> createCharacter -> worker -> character
-`ready`, 6.87c. `original_drawings` recorded `source: photos`, `2048x1536`
-measured off the image, `exif_stripped: true` genuinely (the file is re-encoded,
-not just flagged), and 7.7 MB actually in the bucket.
+**A COMPLETE STORY HAS NOW BEEN MADE FROM THE APP** (29 Aug 2026), by tapping
+through the real UI on the simulator against the live backend:
+
+```
+pick a photo -> isolate -> upload -> character "Pixel" (6.87c)
+   -> Make a story -> theme/mood/length -> "Pixel and the Lost Star"
+   -> 6 pages, 7 illustrations, 43s narration -> READ IT IN THE READER
+```
+
+Story `ready` in 100.7s for **28c**, reservation released to 0. The reader
+renders the illustrations through `media-sign` signed URLs and plays the
+narration. `original_drawings` recorded `source: photos`, `2048x1536` measured
+off the image, and `exif_stripped: true` genuinely — the file is re-encoded, not
+just flagged.
+
+**Free-tier lifetime exposure, measured: 35c** (7c character + 28c story),
+against the 61c modelled in §2. That is the whole free grant, end to end, on
+real infrastructure.
 
 `revenuecat-webhook` currently 500s because `REVENUECAT_WEBHOOK_SECRET` is not
 set as a function secret. Expected — RevenueCat is Step 3 in `.env` and is not

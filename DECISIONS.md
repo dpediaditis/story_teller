@@ -725,3 +725,47 @@ a button that cannot do anything.**
 Also fixed alongside: `capture()` pushed to `isolation-preview` whether or not
 `takePictureAsync` returned a photo, so a failed shutter landed the user on a
 preview of nothing.
+
+## 20. A whole story, made by tapping the app
+
+29 Aug 2026. Not seeded, not curl'd — driven through the real UI on the iOS
+simulator against the live project, from a photo to a narrated picture book.
+
+```
+pick a photo -> strip metadata -> isolate -> upload to Storage
+   -> createCharacter -> claim_character_build -> worker -> "Pixel" ready (6.87c)
+   -> Make a story -> space / adventurous / short
+   -> claim_story_quota -> worker -> "Pixel and the Lost Star"
+   -> 6 pages, 7 illustrations, 43s narration -> ready in 100.7s (28c)
+   -> opened in the reader, illustration and audio both playing
+```
+
+**Free-tier lifetime exposure, measured end to end: 35c.** §2 modelled 61c.
+
+### Two bugs the run found, both in the joins between screens
+
+**The confirm screen had no character name.** Starting a story from an existing
+character (Characters -> Pixel -> Make a story) skips the create-flow screens
+that populate the draft, so `draft.characterName` was empty and the headline
+rendered " goes to Space — a short adventurous story." with a gap where the name
+belongs. Fixed by carrying the name in the route param.
+
+The first attempt at that fix seeded the draft from `CharacterDetailScreen`
+instead, which crashed the screen: it lives under `tabs`, OUTSIDE
+`CreateFlowProvider`, so `useCreateFlow()` throws. Worth recording because the
+provider boundary is invisible from the component — the create-flow draft is
+reachable from `/create/*` only, and anything on a tab has to pass data by
+route.
+
+**Onboarding's "Skip this" left the account with no child** — covered in §19's
+camera section, but this run is what made it matter: every downstream call takes
+a `child_id`, so skipping produced a button that did nothing, forever, with no
+message.
+
+### The pattern in every UI bug found since going live
+
+All of them were the same shape: **a failure with nothing on screen.** A silent
+`return`, a bare `.then()`, a `finally` that navigated anyway, a button that
+could not act. None was a wrong calculation; each was a missing way for the user
+to find out. The mock could not surface any of them because the mock cannot
+fail.

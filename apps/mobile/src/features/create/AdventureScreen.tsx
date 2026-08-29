@@ -29,15 +29,27 @@ const LENGTHS: { value: StoryLength; label: string }[] = [
 ];
 
 /** C1 / C1b — Pick an adventure. One scrolling screen; C1b is just further down. */
-export function AdventureScreen({ characterIdParam }: { characterIdParam?: string }) {
+export function AdventureScreen({
+  characterIdParam,
+  characterNameParam,
+}: {
+  characterIdParam?: string;
+  characterNameParam?: string;
+}) {
   const { draft, update } = useCreateFlow();
 
   useEffect(() => {
     if (characterIdParam && !draft.characterId) {
-      update({ characterId: characterIdParam });
+      // The name comes with it when the story starts from an existing
+      // character — the create-flow screens that would normally set it were
+      // skipped entirely on that path.
+      update({
+        characterId: characterIdParam,
+        ...(characterNameParam ? { characterName: characterNameParam } : {}),
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [characterIdParam]);
+  }, [characterIdParam, characterNameParam]);
 
   const name = draft.characterName || 'your character';
 
