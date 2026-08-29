@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
 import type { IsolateResult } from '@papercub/vision-module';
-import type { StoryLength, StoryMood, StoryTheme } from '@papercub/shared';
+import type { DrawingSource, StoryLength, StoryMood, StoryTheme } from '@papercub/shared';
 
 /**
  * In-memory scratch state for one pass through the create flow (Camera →
@@ -22,6 +22,11 @@ interface Draft {
    */
   idempotencyKey: string;
   capturedImageUri: string | null;
+  /** Where the drawing came from. Recorded on original_drawings.source. */
+  source: DrawingSource;
+  /** Measured off the decoded image, never assumed. */
+  capturedWidthPx: number | null;
+  capturedHeightPx: number | null;
   isolation: IsolateResult | null;
   manualCropUsed: boolean;
   characterName: string;
@@ -44,6 +49,9 @@ const initialDraft: Draft = {
   childId: null,
   idempotencyKey: newIdempotencyKey(),
   capturedImageUri: null,
+  source: 'camera',
+  capturedWidthPx: null,
+  capturedHeightPx: null,
   isolation: null,
   manualCropUsed: false,
   characterName: '',

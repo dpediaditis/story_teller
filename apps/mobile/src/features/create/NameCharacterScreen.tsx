@@ -41,6 +41,14 @@ export function NameCharacterScreen() {
     setSaving(true);
     const childId = session?.children[0]?.id;
     if (!childId || !draft.isolation) {
+      // Never a silent return. This bailed with no message and no navigation,
+      // so the button simply did nothing — the single worst failure mode in the
+      // flow, because there is nothing on screen to react to.
+      setError(
+        !childId
+          ? "We couldn't find who this story is for. Add a child on the Family tab and try again."
+          : "That drawing didn't come through. Try taking it again.",
+      );
       setSaving(false);
       return;
     }
@@ -82,7 +90,8 @@ export function NameCharacterScreen() {
         drawing: {
           cutoutStorageKey: cutout.storageKey,
           originalStorageKey: null,
-          source: 'camera',
+          // Whether the parent photographed it or picked it from the library.
+          source: draft.source,
           retentionPolicy,
           exifStripped: true,
           isolationMethod: draft.isolation.method,

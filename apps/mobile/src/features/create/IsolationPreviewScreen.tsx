@@ -78,8 +78,11 @@ export function IsolationPreviewScreen() {
         confidence: 0.5,
         method: 'manual_repair',
         palette: ['#6d47bd', '#efe7fb'],
-        widthPx: 1024,
-        heightPx: 1024,
+        // Measured when the image entered the flow (prepareDrawing), not
+        // assumed. These land in original_drawings.width_px/height_px, and 1024
+        // square was a number nothing had ever looked at.
+        widthPx: draft.capturedWidthPx ?? 1024,
+        heightPx: draft.capturedHeightPx ?? 1024,
         faceDetected: false,
         nameLikeTextDetected: false,
         exifStripped: true,

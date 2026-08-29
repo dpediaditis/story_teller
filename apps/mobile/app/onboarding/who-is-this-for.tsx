@@ -3,7 +3,8 @@ import { View, StyleSheet, TextInput } from 'react-native';
 import { router } from 'expo-router';
 import type { AgeBand } from '@papercub/shared';
 import { Screen, Text, Button, Chip, EyebrowLabel } from '../../src/components';
-import { apiClient } from '../../src/lib/api';
+import { apiClient, ApiCallError, errorCopy } from '../../src/lib/api';
+import { useSession } from '../../src/features/session/SessionProvider';
 import { inkAlpha, radius, spacing, colour } from '../../src/theme';
 
 const AGE_BANDS: { value: AgeBand; label: string }[] = [
@@ -20,19 +21,46 @@ const AGE_BANDS: { value: AgeBand; label: string }[] = [
 export default function WhoIsThisFor() {
   const [name, setName] = useState('');
   const [ageBand, setAgeBand] = useState<AgeBand>('6_7');
+  const { refresh } = useSession();
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  async function continueOn() {
+  /**
+   * Both fields are optional, and the copy above says so — but a child ROW is
+   * not optional. Everything downstream hangs off `child_id`: createCharacter,
+   * createUploadUrl and claim_story_quota all take one, and the create flow
+   * reads `session.children[0]`.
+   *
+   * "Skip this" used to navigate without creating one, so a parent who skipped
+   * reached "What's their name?", tapped the button, and nothing happened —
+   * ever. `confirm()` read an undefined childId and returned silently. Skipping
+   * means "use the defaults", not "have no child", so both paths write the row
+   * and only the values differ.
+   */
+  async function saveChild(displayName: string | null) {
     setSaving(true);
+    setError(null);
     try {
-      await apiClient.call('upsertChild', {
-        displayName: name.trim().length ? name.trim() : null,
-        ageBand,
-      });
+      await apiClient.call('upsertChild', { displayName, ageBand });
+      // The session was fetched at launch, BEFORE this child existed, and
+      // nothing else re-reads it — AuthSessionProvider only refreshes on a
+      // Supabase auth change, which creating a child is not. Without this the
+      // whole app carries `children: []` for the rest of its life, and the
+      // create flow's `session.children[0]` is undefined two screens later.
+      await refresh();
+      router.push('/onboarding/camera-permission');
+    } catch (err) {
+      // Deliberately does NOT navigate on failure. The old `finally` marched on
+      // regardless, which produced the same silent dead end two screens later,
+      // with nothing to connect it back to this moment.
+      setError(err instanceof ApiCallError ? errorCopy(err.apiError.copyKey) : errorCopy(undefined));
     } finally {
       setSaving(false);
-      router.push('/onboarding/camera-permission');
     }
+  }
+
+  function continueOn() {
+    return saveChild(name.trim().length ? name.trim() : null);
   }
 
   return (
@@ -69,12 +97,13 @@ export default function WhoIsThisFor() {
       </View>
 
       <View style={styles.footer}>
+        {error ? (
+          <Text variant="label" color={colour.danger} style={{ textAlign: 'center' }}>
+            {error}
+          </Text>
+        ) : null}
         <Button label="Continue" onPress={continueOn} loading={saving} />
-        <Button
-          label="Skip this"
-          kind="ghost"
-          onPress={() => router.push('/onboarding/camera-permission')}
-        />
+        <Button label="Skip this" kind="ghost" disabled={saving} onPress={() => saveChild(null)} />
       </View>
     </Screen>
   );

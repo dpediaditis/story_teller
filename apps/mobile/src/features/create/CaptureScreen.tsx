@@ -4,6 +4,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { router } from 'expo-router';
 import { Screen, Text, EyebrowLabel } from '../../components';
 import { useCreateFlow } from './CreateFlowContext';
+import { pickDrawingFromLibrary, prepareCapturedPhoto } from './prepareDrawing';
 import { colour, radius, spacing } from '../../theme';
 
 /**
@@ -33,12 +34,38 @@ export function CaptureScreen() {
         setCaptureFailed(true);
         return;
       }
-      update({ capturedImageUri: photo.uri });
+      // Stripped BEFORE it enters the draft, so nothing downstream can upload
+      // the original by accident — DECISIONS.md §10.
+      const prepared = await prepareCapturedPhoto(photo.uri);
+      update({
+        capturedImageUri: prepared.uri,
+        source: prepared.source,
+        capturedWidthPx: prepared.widthPx,
+        capturedHeightPx: prepared.heightPx,
+      });
       router.push('/create/isolation-preview');
     } catch {
       setCaptureFailed(true);
     } finally {
       setCapturing(false);
+    }
+  }
+
+  async function chooseFromLibrary() {
+    setCaptureFailed(false);
+    try {
+      const prepared = await pickDrawingFromLibrary();
+      // null = cancelled, or library access declined. Both are ordinary; stay put.
+      if (!prepared) return;
+      update({
+        capturedImageUri: prepared.uri,
+        source: prepared.source,
+        capturedWidthPx: prepared.widthPx,
+        capturedHeightPx: prepared.heightPx,
+      });
+      router.push('/create/isolation-preview');
+    } catch {
+      setCaptureFailed(true);
     }
   }
 
@@ -74,6 +101,12 @@ export function CaptureScreen() {
               {canPrompt ? 'Allow camera' : 'Open Settings'}
             </Text>
           </Pressable>
+          {/* The real way past a declined camera. Sending the parent to
+              Settings and nowhere else makes the drawing unreachable for
+              anyone who does not want to grant the camera at all. */}
+          <Pressable hitSlop={12} onPress={chooseFromLibrary}>
+            <Text variant="button" color={colour.paperElevated}>Choose from Photos</Text>
+          </Pressable>
           <Pressable hitSlop={12} onPress={() => router.back()}>
             <Text variant="body" color="rgba(246,241,231,.7)">Not now</Text>
           </Pressable>
@@ -105,7 +138,9 @@ export function CaptureScreen() {
         </View>
       ) : null}
       <View style={styles.bottomRow}>
-        <View style={{ width: 68 }} />
+        <Pressable hitSlop={12} onPress={chooseFromLibrary} style={styles.libraryBtn}>
+          <Text variant="captionMono" color={colour.paperElevated}>Photos</Text>
+        </Pressable>
         <Pressable
           onPress={capture}
           disabled={capturing}
@@ -157,6 +192,7 @@ const styles = StyleSheet.create({
     borderWidth: 4,
     borderColor: 'rgba(255,255,255,0.4)',
   },
+  libraryBtn: { width: 68, alignItems: 'center', justifyContent: 'center' },
   permissionPrompt: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.section, gap: spacing.huge },
   captureError: {
     position: 'absolute',

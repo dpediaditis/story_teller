@@ -25,4 +25,5 @@ export const authConfig = {
 };
 
 export const isSupabaseConfigured = Boolean(authConfig.supabaseUrl && authConfig.supabaseAnonKey);
+
 export const isGoogleSignInConfigured = Boolean(authConfig.googleWebClientId);

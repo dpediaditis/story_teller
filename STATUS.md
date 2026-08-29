@@ -104,6 +104,28 @@ repairs:
    (§14 item 1). Measured quantities are real; the unit prices are researched.
    Do not reprice until this is done.
 
+## Building the app — the `.env` must be present at BUILD time
+
+`app.config.ts` reads `process.env.EXPO_PUBLIC_*` and its output is baked into
+`Papercub.app/EXConstants.bundle/app.config` by xcodebuild. `Constants.expoConfig
+.extra` comes from THERE, not from the Metro manifest — so a build made without
+the env produces an app that silently falls back to `mockApiClient` no matter
+how Metro is started afterwards. The symptom is the library showing "Bobo and the
+Missing Moon" and "Luna Finds the Secret Forest", which are mock-client fixtures.
+
+```
+cd apps/mobile && set -a && . ../../.env && set +a && xcodebuild …
+```
+
+To check what a build actually baked:
+
+```
+python3 -c "import json;print(list(json.load(open('ios/build/Build/Products/Debug-iphonesimulator/Papercub.app/EXConstants.bundle/app.config'))['extra'].keys()))"
+```
+
+CocoaPods also needs a UTF-8 locale or it dies in `unicode_normalize` before it
+reads the Podfile: `LANG=en_US.UTF-8 pod install`.
+
 ## Running the app
 
 ```
@@ -140,10 +162,11 @@ reservation released to 0, **6.86c** — matching the earlier measurement. The
 worker read exactly the object the client uploaded, which is the step that was
 previously impossible.
 
-The one link not exercised on a device is `File.upload()` itself: the iOS
-simulator has no camera and the "Choose from Photos" button is not a picker
-yet, so there is no way to produce a real `file://` image in it. Everything the
-upload talks TO is verified with the identical PUT.
+**Verified from the app UI too**, end to end on the simulator: pick from the
+photo library -> isolate -> upload -> createCharacter -> worker -> character
+`ready`, 6.87c. `original_drawings` recorded `source: photos`, `2048x1536`
+measured off the image, `exif_stripped: true` genuinely (the file is re-encoded,
+not just flagged), and 7.7 MB actually in the bucket.
 
 `revenuecat-webhook` currently 500s because `REVENUECAT_WEBHOOK_SECRET` is not
 set as a function secret. Expected — RevenueCat is Step 3 in `.env` and is not
