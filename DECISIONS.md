@@ -1025,3 +1025,75 @@ the reference sheet, and the cut-out respectively. Two grids also stretched a
 lone tile across the full row — `flex: 1` with `numColumns: 2` needs
 `maxWidth: '48%'` — and two screens (the paywall, Family) had content below the
 fold inside a plain `View` with no way to scroll to it.
+
+## §21 — The narration reads the book
+
+The reader was a picture, a paragraph and a play button. It is now driven by the
+narration: the sentence being read carries a wash, the word being said carries a
+mark, the page turns itself, and tapping any word plays from there.
+
+### Timings we do not have
+
+Gemini TTS returns audio and nothing else. `narrations.word_timings_key` is null
+on every row and `sentence_level_only` is true, so there is no provider timing to
+highlight against. The choice was to ship nothing, or to model it.
+
+`packages/shared/src/narration-timing.ts` models it. The worker narrates the
+whole story in one pass with the pages joined in order, so the audio is the pages
+back to back; each word gets a weight in syllable equivalents plus a pause weight
+for its trailing punctuation, and the weights are scaled so they sum to the one
+hard number we do have — the duration measured off the PCM byte count, not
+estimated. `estimated: true` is a field on the timeline rather than a comment,
+because if a provider with real timings is ever adopted this module is what it
+replaces.
+
+Only the ratios between the weights matter, since the total is pinned. That is
+also what makes the error tolerable: it cannot accumulate across a story, only
+wander inside a sentence, and it is pulled back at every full stop. There is a
+test for exactly that — twelve pages, and the last one still ends on the
+measured duration.
+
+The interface is built around the residual error. The SENTENCE takes the
+marigold wash the design asks for and the WORD takes a stronger mark on top. A
+word cursor half a beat out still sits inside the right sentence, which is the
+band the eye is following, so being slightly wrong about the word is not felt as
+being wrong.
+
+### "Speak slower" is a playback rate, and here is why
+
+The better fix would be a slower read at synthesis, with real pauses. Measured
+against the live API on 59 characters of story that plainly synthesise to 6.05s:
+
+| | |
+|---|---|
+| `"Read the following bedtime story aloud slowly…"` prefixed | **655s** |
+| `"Say the following slowly and warmly…:"` prefixed | 10.85s |
+| `speechConfig.speakingRate` | 400, no such field |
+
+The first is not a typo — eleven minutes of audio for two sentences. The second
+is 1.79x, about what you would expect if the instruction were simply read out as
+well, and speech is billed per character of input, so a prefix is money spent
+having an instruction read aloud to a child. `gemini-2.5-flash-preview-tts` does
+not take delivery direction; it narrates it. The finding is written above
+`synthesise` in `providers/gemini.ts` so nobody tries it a third time.
+
+So the speed control in the reader is a real `playbackRate` with pitch
+correction, defaulting to 0.85x. It cannot insert pauses, but it is honest, it
+costs nothing, and it works on stories that already exist. `Speed` and
+`Auto-turn` were both static labels describing settings that did not exist; they
+are controls now.
+
+### The heart nobody could fill
+
+`setStoryFavourite` was in the contract, in the Edge Function and in the client's
+route table, and no screen had ever called it. So no story could be favourited,
+which made the library's ♥ filter permanently empty — and an empty filtered
+library rendered the first-run empty state, which has no filter row, so tapping
+the heart looked exactly like every story being deleted with no way back.
+
+Two fixes, and the second is the general one: an empty library and an empty
+filter are different states and must not share a screen. Any state reachable with
+a filter applied has to keep rendering the filter, or the filter is a trap.
+
+The heart itself now lives in the reader's top bar and on the end screen, which
+is where a family actually decides they want to keep a story.

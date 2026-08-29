@@ -1,9 +1,23 @@
-import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  AccessibilityInfo,
+  Animated,
+  Easing,
+  PanResponder,
+  Pressable,
+  StyleSheet,
+  View,
+} from 'react-native';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import type { StoryDetailDto } from '@papercub/shared';
-import { DEFAULT_NARRATION_VOICE_ID, NARRATION_VOICES } from '@papercub/shared';
+import type { NarratedPage, StoryDetailDto } from '@papercub/shared';
+import {
+  DEFAULT_NARRATION_VOICE_ID,
+  NARRATION_VOICES,
+  buildNarrationTimeline,
+  pageIndexAtMs,
+  wordAtMs,
+} from '@papercub/shared';
 import { Screen, Text, Button } from '../../components';
 import { useSignedMedia } from '../../lib/api/useSignedMedia';
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
@@ -18,28 +32,56 @@ import { colour, inkAlpha, radius, spacing } from '../../theme';
  * tokens are the ONLY ones that scale with Dynamic Type (see src/theme),
  * so this screen needs no separate large-text layout.
  *
- * Narration playback itself is mocked (a running clock, no real audio
- * decode) — there's no real audio asset behind the mock's storageKey yet;
- * wiring `expo-audio` (useAudioPlayer) to a real file is the remaining step
- * once the worker produces narration.
+ * The narration drives the book. One audio file covers the whole story, and
+ * `buildNarrationTimeline` (packages/shared) models where each word and each
+ * page falls inside it, so the reader can:
+ *
+ *   - wash the sentence being read and mark the word being said
+ *   - turn the page by itself, in the silence between pages
+ *   - jump to any word the child taps
+ *
+ * Those timings are a MODEL, not the provider's — Gemini TTS returns audio and
+ * nothing else. The highlight is designed around that: the sentence carries the
+ * wash and the word carries the mark, so a word cursor half a beat out still
+ * sits inside the right sentence, which is the band the eye follows.
  */
+
+/** Slower than life, because the audience is four. Tap to cycle. */
+const SPEEDS = [0.75, 0.85, 1] as const;
+const DEFAULT_SPEED_INDEX = 1;
+
 export function ReaderScreen({ storyId }: { storyId: string }) {
   const [story, setStory] = useState<StoryDetailDto | null>(null);
   const [failed, setFailed] = useState(false);
   const [pageIndex, setPageIndex] = useState(1);
   const [controlsVisible, setControlsVisible] = useState(true);
-  const [playing, setPlaying] = useState(false);
-  const [elapsedMs, setElapsedMs] = useState(0);
+  const [autoTurn, setAutoTurn] = useState(true);
+  const [speedIndex, setSpeedIndex] = useState<number>(DEFAULT_SPEED_INDEX);
+  const [favourited, setFavourited] = useState(false);
+  const [reduceMotion, setReduceMotion] = useState(false);
 
   useEffect(() => {
     apiClient
       .call('getStory', { id: storyId })
-      .then((res) => setStory(res.story))
+      .then((res) => {
+        setStory(res.story);
+        setFavourited(res.story.favouritedAt !== null);
+      })
       // CLAUDE.md: an unhandled network failure renders a state the user can
       // act on, never a permanent blank. A bare .then() here left the screen
       // stuck at `story === null` forever on any failure.
       .catch(() => setFailed(true));
   }, [storyId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    AccessibilityInfo.isReduceMotionEnabled().then((on) => {
+      if (!cancelled) setReduceMotion(on);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Before the early return: hooks may not be conditional. One batched
   // media-sign for the whole book — private buckets, so a storage key is not a
@@ -70,11 +112,105 @@ export function ReaderScreen({ storyId }: { storyId: string }) {
     void setAudioModeAsync({ playsInSilentMode: true }).catch(() => undefined);
   }, []);
 
-  // Elapsed comes from the PLAYER now, not a timer counting hopefully upward.
+  const positionMs = Math.round((status.currentTime ?? 0) * 1000);
+  const playing = status.playing ?? false;
+
+  const speed = SPEEDS[speedIndex] ?? 1;
   useEffect(() => {
-    setElapsedMs(Math.round((status.currentTime ?? 0) * 1000));
-    setPlaying(status.playing ?? false);
-  }, [status.currentTime, status.playing]);
+    /* Slowing the audio is the only lever we have: the synthesiser reads the
+     * delivery direction aloud instead of following it (see the note above
+     * `synthesise` in providers/gemini.ts). Pitch correction is what keeps
+     * 0.85x sounding like a slower reader rather than a bigger one.
+     *
+     * Gated on `isLoaded` because setting a rate on a player with no ready
+     * item is not defined to do anything useful, and the failure mode if it
+     * does go wrong here is the worst one this screen has: a play button that
+     * produces no sound and no error.
+     */
+    if (!status.isLoaded) return;
+    player.shouldCorrectPitch = true;
+    player.setPlaybackRate(speed, 'high');
+  }, [player, speed, status.isLoaded]);
+
+  /* The timeline depends only on the text and the measured duration, so it is
+   * built once per story and not on every tick of the clock. */
+  const timeline = useMemo(() => {
+    if (!story) return null;
+    const readable = story.pages.filter((p) => p.status === 'ready');
+    if (readable.length === 0 || !story.narration) return null;
+    return buildNarrationTimeline(
+      readable.map((p) => ({ index: p.index, text: p.text })),
+      story.narration.durationMs,
+    );
+  }, [story]);
+
+  const turn = useCallback(
+    (next: number, seek: boolean) => {
+      if (!story) return;
+      const clamped = Math.max(1, Math.min(next, story.pageCount));
+      setPageIndex(clamped);
+      /* Turning the page by hand moves the narration with it. Without this the
+       * voice keeps reading page two while page five is on screen, and the
+       * highlight — which follows the audio, not the page — sits on nothing. */
+      if (seek && timeline && narrationUrl) {
+        const target = timeline.pages.find((p) => p.pageIndex === clamped);
+        if (target) void player.seekTo(target.startMs / 1000);
+      }
+    },
+    [story, timeline, narrationUrl, player],
+  );
+
+  /* Auto-turn. `pageIndexAtMs` returns the page about to start during the
+   * silence between two pages, so the turn lands while nobody is speaking. */
+  useEffect(() => {
+    if (!autoTurn || !playing || !timeline) return;
+    const shouldBe = pageIndexAtMs(timeline, positionMs);
+    if (shouldBe !== null && shouldBe !== pageIndex) setPageIndex(shouldBe);
+  }, [autoTurn, playing, timeline, positionMs, pageIndex]);
+
+  /* The book closes itself. Reaching the end of the audio is the end of the
+   * story, and a child who has been listening should not have to find a button
+   * to be told so. `didJustFinish` is the player's own signal — comparing the
+   * position against the duration misses whenever the last tick lands short. */
+  const endedRef = useRef(false);
+  useEffect(() => {
+    if (!status.didJustFinish || endedRef.current) return;
+    endedRef.current = true;
+    router.replace(`/story/${storyId}/end`);
+  }, [status.didJustFinish, storyId]);
+
+  /* A page arriving, rather than a page being replaced. Runs on every page
+   * change, whoever caused it, so an automatic turn and a swipe look the
+   * same. */
+  const enter = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (reduceMotion) {
+      enter.setValue(1);
+      return;
+    }
+    enter.setValue(0);
+    Animated.timing(enter, {
+      toValue: 1,
+      duration: 320,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [pageIndex, enter, reduceMotion]);
+
+  /* Swipe to turn, because that is what a book does. `onMoveShouldSet` only
+   * fires once a finger has travelled, so taps still reach the words
+   * underneath. */
+  const swipe = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > 16 && Math.abs(g.dx) > Math.abs(g.dy) * 1.6,
+        onPanResponderRelease: (_e, g) => {
+          if (g.dx <= -48) turn(pageIndex + 1, true);
+          else if (g.dx >= 48) turn(pageIndex - 1, true);
+        },
+      }),
+    [turn, pageIndex],
+  );
 
   if (failed) {
     return (
@@ -92,31 +228,35 @@ export function ReaderScreen({ storyId }: { storyId: string }) {
   if (!story) return <Screen background={colour.paperGroundAlt} />;
 
   const page = story.pages.find((p) => p.index === pageIndex);
-  const isLast = pageIndex >= story.pageCount;
   const pageReady = page?.status === 'ready';
+  const timedPage = timeline?.pages.find((p) => p.pageIndex === pageIndex) ?? null;
+  const durationMs = timeline?.totalMs ?? story.narration?.durationMs ?? 0;
 
-  function next() {
-    if (isLast) {
-      router.replace(`/story/${storyId}/end`);
-      return;
-    }
-    setPageIndex((i) => Math.min(i + 1, story!.pageCount));
-    setElapsedMs(0);
-  }
-  function prev() {
-    setPageIndex((i) => Math.max(1, i - 1));
-    setElapsedMs(0);
-  }
-
-  const durationMs = story.narration?.durationMs ?? 0;
   const format = (ms: number) => {
     const s = Math.floor(ms / 1000);
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   };
 
+  async function toggleFavourite() {
+    const next = !favourited;
+    setFavourited(next);
+    try {
+      await apiClient.call('setStoryFavourite', { id: storyId, favourited: next });
+    } catch {
+      // Put the heart back rather than showing a state the server rejected.
+      setFavourited(!next);
+    }
+  }
+
+  function seekToWord(startMs: number) {
+    if (!narrationUrl) return;
+    void player.seekTo(startMs / 1000);
+    if (!playing) player.play();
+  }
+
   return (
     <Screen background={colour.paperGroundAlt} edges={['top', 'bottom']}>
-      <Pressable style={styles.tapZone} onPress={() => setControlsVisible((v) => !v)}>
+      <View style={styles.tapZone} {...swipe.panHandlers}>
         {controlsVisible ? (
           <View style={styles.topBar}>
             <Pressable hitSlop={12} onPress={() => router.back()}>
@@ -125,56 +265,97 @@ export function ReaderScreen({ storyId }: { storyId: string }) {
             <Text variant="readerPageCounter">
               Page {pageIndex} of {story.pageCount}
             </Text>
-            <View style={{ width: 24 }} />
+            {/* `setStoryFavourite` existed on the server and in the client's
+                route table and no screen had ever called it, so the library's
+                heart filter could only ever be empty. */}
+            <Pressable
+              hitSlop={12}
+              onPress={() => void toggleFavourite()}
+              accessibilityLabel={favourited ? 'Remove from favourites' : 'Add to favourites'}
+            >
+              <Text variant="button" color={favourited ? colour.violet : inkAlpha.textFaint}>
+                {favourited ? '♥' : '♡'}
+              </Text>
+            </Pressable>
           </View>
         ) : null}
 
-        <View style={styles.artFrame}>
-          {pageReady && page?.illustration && signedUrls[page.illustration.storageKey] ? (
-            <Image
-              source={{ uri: signedUrls[page.illustration.storageKey] }}
-              style={StyleSheet.absoluteFill}
-              contentFit="cover"
-            />
-          ) : (
-            <View style={styles.artPlaceholder}>
-              <Text variant="captionMono" color={inkAlpha.textLabel}>Still being drawn…</Text>
+        <Pressable onPress={() => setControlsVisible((v) => !v)}>
+          <Animated.View
+            style={{
+              opacity: enter,
+              transform: [
+                { translateX: enter.interpolate({ inputRange: [0, 1], outputRange: [26, 0] }) },
+              ],
+            }}
+          >
+            <View style={styles.artFrame}>
+              {pageReady && page?.illustration && signedUrls[page.illustration.storageKey] ? (
+                <Image
+                  source={{ uri: signedUrls[page.illustration.storageKey] }}
+                  style={StyleSheet.absoluteFill}
+                  contentFit="cover"
+                />
+              ) : (
+                <View style={styles.artPlaceholder}>
+                  <Text variant="captionMono" color={inkAlpha.textLabel}>Still being drawn…</Text>
+                </View>
+              )}
             </View>
-          )}
-        </View>
 
-        <View style={styles.textBlock}>
-          <Text variant={playing ? 'readerActiveSentence' : 'readerPageProse'} style={playing ? styles.activeHighlight : undefined}>
-            {pageReady ? page?.text : 'This page is still being written — the rest of the book is on its way.'}
-          </Text>
-        </View>
-      </Pressable>
+            <View style={styles.textBlock}>
+              {pageReady && timedPage ? (
+                <NarratedProse
+                  page={timedPage}
+                  positionMs={playing ? positionMs : -1}
+                  onWordPress={seekToWord}
+                />
+              ) : (
+                <Text variant="readerPageProse">
+                  {pageReady
+                    ? page?.text
+                    : 'This page is still being written — the rest of the book is on its way.'}
+                </Text>
+              )}
+            </View>
+          </Animated.View>
+        </Pressable>
+      </View>
 
       {controlsVisible ? (
         <View style={styles.controls}>
           <View style={styles.progressRow}>
-            <Text variant="captionMono" color={inkAlpha.textLabel}>{format(elapsedMs)}</Text>
+            <Text variant="captionMono" color={inkAlpha.textLabel}>{format(positionMs)}</Text>
             <View style={styles.track}>
-              <View style={[styles.trackFill, { width: durationMs ? `${Math.min(100, (elapsedMs / durationMs) * 100)}%` : '0%' }]} />
+              <View style={[styles.trackFill, { width: durationMs ? `${Math.min(100, (positionMs / durationMs) * 100)}%` : '0%' }]} />
             </View>
             <Text variant="captionMono" color={inkAlpha.textLabel}>{format(durationMs)}</Text>
           </View>
 
           <View style={styles.controlsRow}>
-            <Pressable onPress={prev} style={styles.navBtn}>
+            <Pressable onPress={() => turn(pageIndex - 1, true)} style={styles.navBtn}>
               <Text variant="button">‹</Text>
             </Pressable>
             <Pressable
               onPress={() => {
                 if (!narrationUrl) return;
-                if (status.playing) player.pause();
-                else player.play();
+                if (playing) player.pause();
+                else {
+                  endedRef.current = false;
+                  player.play();
+                }
               }}
               style={[styles.playBtn, !narrationUrl && { opacity: 0.4 }]}
             >
               <Text variant="button" color={colour.paperElevated}>{playing ? '❚❚' : '▶'}</Text>
             </Pressable>
-            <Pressable onPress={next} style={styles.navBtn}>
+            <Pressable
+              onPress={() => {
+                if (pageIndex >= story.pageCount) router.replace(`/story/${storyId}/end`);
+                else turn(pageIndex + 1, true);
+              }}
+              style={styles.navBtn}
+            >
               <Text variant="button">›</Text>
             </Pressable>
           </View>
@@ -190,12 +371,72 @@ export function ReaderScreen({ storyId }: { storyId: string }) {
                 ? NARRATION_VOICES[story.narration.voiceId].displayName
                 : NARRATION_VOICES[DEFAULT_NARRATION_VOICE_ID].displayName}
             </Text>
-            <Text variant="label" color={inkAlpha.textLabel}>Speed · 0.9×</Text>
-            <Text variant="label" color={inkAlpha.textLabel}>Auto-turn</Text>
+            {/* Both of these were static labels describing settings that did not
+                exist. They are controls now. */}
+            <Pressable hitSlop={10} onPress={() => setSpeedIndex((i) => (i + 1) % SPEEDS.length)}>
+              <Text variant="label" color={inkAlpha.textLabel}>Speed · {speed}×</Text>
+            </Pressable>
+            <Pressable hitSlop={10} onPress={() => setAutoTurn((v) => !v)}>
+              <Text variant="label" color={autoTurn ? colour.violet : inkAlpha.textLabel}>
+                Auto-turn · {autoTurn ? 'On' : 'Off'}
+              </Text>
+            </Pressable>
           </View>
         </View>
       ) : null}
     </Screen>
+  );
+}
+
+/**
+ * The page, word by word.
+ *
+ * Nested `Text` keeps this one paragraph as far as layout is concerned, so the
+ * prose still wraps and still scales with Dynamic Type — rendering each word in
+ * its own view would turn a story into a word grid.
+ *
+ * Two levels of highlight, and the reason is drift: the sentence wash is what
+ * the eye tracks, and it is right for seconds at a time, while the word mark is
+ * a model of where the voice is and can be a beat out. Getting the sentence
+ * right is what makes being slightly wrong about the word forgivable.
+ *
+ * `positionMs` of -1 means "not playing" — no highlight, plain prose.
+ */
+function NarratedProse({
+  page,
+  positionMs,
+  onWordPress,
+}: {
+  page: NarratedPage;
+  positionMs: number;
+  onWordPress: (startMs: number) => void;
+}) {
+  const active = positionMs < 0 ? null : wordAtMs(page, positionMs);
+
+  return (
+    <Text variant="readerPageProse">
+      {page.words.map((word, i) => {
+        const isWord = active?.index === word.index;
+        const isSentence = active !== null && active.sentenceIndex === word.sentenceIndex;
+        return (
+          <Text
+            key={word.index}
+            variant="readerPageProse"
+            /* Tapping a word plays from there. It costs nothing given the
+               timeline already exists, and it turns the page into something a
+               child can poke at rather than only watch. */
+            onPress={() => onWordPress(word.startMs)}
+            suppressHighlighting
+            style={
+              isWord ? styles.wordActive : isSentence ? styles.sentenceActive : undefined
+            }
+          >
+            {word.text}
+            {i < page.words.length - 1 ? ' ' : ''}
+          </Text>
+        );
+      })}
+    </Text>
   );
 }
 
@@ -211,7 +452,11 @@ const styles = StyleSheet.create({
   },
   artPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   textBlock: { marginTop: spacing.section },
-  activeHighlight: { backgroundColor: 'rgba(217,140,31,0.18)' },
+  // The marigold wash the design asks for, on the sentence being read.
+  sentenceActive: { backgroundColor: 'rgba(217,140,31,0.18)' },
+  // The word inside it. Stronger, but still a wash rather than a colour change:
+  // recolouring the ink makes the word jump out of the line and breaks reading.
+  wordActive: { backgroundColor: 'rgba(217,140,31,0.52)' },
   controls: { padding: spacing.xxl, gap: spacing.lgPlus },
   progressRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   track: { flex: 1, height: 4, borderRadius: 2, backgroundColor: inkAlpha.divider },
@@ -226,5 +471,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  metaRow: { flexDirection: 'row', justifyContent: 'space-around' },
+  metaRow: { flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center' },
 });

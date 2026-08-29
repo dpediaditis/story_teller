@@ -434,6 +434,28 @@ function geminiVoiceName(voiceId: string): string {
   return name;
 }
 
+/*
+ * MEASURED, do not try this again: `gemini-2.5-flash-preview-tts` does not
+ * take delivery direction as a prefix. It narrates it.
+ *
+ * The goal was a slower read — the default pace is too fast for a four-year-old
+ * following the words. Two attempts against the live API, on 59 characters of
+ * story that plainly synthesise to 6.05s:
+ *
+ *   "Read the following bedtime story aloud slowly…" as a prefix   655s
+ *   "Say the following slowly and warmly…:" as a prefix           10.85s
+ *   `speechConfig.speakingRate`                    400, no such field
+ *
+ * The first is not a typo: 11 minutes of audio for two sentences. The second is
+ * 1.79x, which is close to the ratio you would expect from simply reading the
+ * instruction out as well — and speech is billed per character of input, so a
+ * prefix costs money to have read aloud to a child.
+ *
+ * Slower playback therefore lives in the reader, as a playback rate the parent
+ * controls, defaulting below 1x. That cannot insert pauses the way a genuinely
+ * slower read would, but it is honest, it is free, and it works on the stories
+ * that already exist.
+ */
   const speech: SpeechSynthesizer = {
     async synthesise({ text: toSpeak, voiceId }) {
       const startedMs = Date.now();

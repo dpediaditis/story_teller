@@ -62,9 +62,7 @@ export function StoriesHomeScreen() {
   if (loadError !== null && stories.length === 0) {
     return (
       <Screen>
-        <View style={styles.header}>
-          <Text variant="sectionHeading">Stories</Text>
-        </View>
+        <Header favouritesOnly={favouritesOnly} onChange={setFavouritesOnly} />
         <View style={styles.empty}>
           <Text variant="sectionHeading" style={{ textAlign: 'center' }}>
             We couldn’t load the library.
@@ -78,6 +76,29 @@ export function StoriesHomeScreen() {
           </Text>
           <View style={{ marginTop: spacing.section }}>
             <Button label="Try again" onPress={() => void load()} />
+          </View>
+        </View>
+      </Screen>
+    );
+  }
+
+  /* An empty library and an empty FILTER are different things, and conflating
+   * them is what made the heart look like it deleted everything: tapping it
+   * rendered the first-run empty state, which has no filter row, so there was
+   * no way back to All. The library was full the whole time. */
+  if (stories.length === 0 && favouritesOnly) {
+    return (
+      <Screen>
+        <Header favouritesOnly={favouritesOnly} onChange={setFavouritesOnly} />
+        <View style={styles.empty}>
+          <Text variant="sectionHeading" style={{ textAlign: 'center' }}>
+            No favourites yet.
+          </Text>
+          <Text variant="body" color={inkAlpha.textBody} style={{ marginTop: spacing.sm, textAlign: 'center' }}>
+            Open a story and tap the heart to keep it here.
+          </Text>
+          <View style={{ marginTop: spacing.huge, alignSelf: 'stretch' }}>
+            <Button label="Show all stories" onPress={() => setFavouritesOnly(false)} />
           </View>
         </View>
       </Screen>
@@ -108,23 +129,7 @@ export function StoriesHomeScreen() {
 
   return (
     <Screen>
-      <View style={styles.header}>
-        <Text variant="sectionHeading">Stories</Text>
-        <View style={styles.filters}>
-          <Pressable
-            onPress={() => setFavouritesOnly(false)}
-            style={[styles.filterPill, !favouritesOnly && styles.filterPillActive]}
-          >
-            <Text variant="label" color={!favouritesOnly ? colour.paperElevated : inkAlpha.textStrong}>All</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => setFavouritesOnly(true)}
-            style={[styles.filterPill, favouritesOnly && styles.filterPillActive]}
-          >
-            <Text variant="label" color={favouritesOnly ? colour.paperElevated : inkAlpha.textStrong}>♥</Text>
-          </Pressable>
-        </View>
-      </View>
+      <Header favouritesOnly={favouritesOnly} onChange={setFavouritesOnly} />
 
       {/* There was NO way to start a story from the library once it had
           anything in it — the only entry point was the empty state, which you
@@ -147,6 +152,36 @@ export function StoriesHomeScreen() {
         )}
       />
     </Screen>
+  );
+}
+
+/** Title plus the All / ♥ filter. Every state that can be reached with a filter
+ *  on has to render this, or the filter becomes a trap. */
+function Header({
+  favouritesOnly,
+  onChange,
+}: {
+  favouritesOnly: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <View style={styles.header}>
+      <Text variant="sectionHeading">Stories</Text>
+      <View style={styles.filters}>
+        <Pressable
+          onPress={() => onChange(false)}
+          style={[styles.filterPill, !favouritesOnly && styles.filterPillActive]}
+        >
+          <Text variant="label" color={!favouritesOnly ? colour.paperElevated : inkAlpha.textStrong}>All</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => onChange(true)}
+          style={[styles.filterPill, favouritesOnly && styles.filterPillActive]}
+        >
+          <Text variant="label" color={favouritesOnly ? colour.paperElevated : inkAlpha.textStrong}>♥</Text>
+        </Pressable>
+      </View>
+    </View>
   );
 }
 

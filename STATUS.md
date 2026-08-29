@@ -76,6 +76,17 @@ in the Simulator and re-checked there after the fix:
 - The library has a "＋ New story" button; character-screen story rows and
   library tiles both navigate.
 
+**The reader follows the narration** (30 Aug 2026). Word and sentence
+highlighting, automatic page turns, swipe to turn, tap a word to play from
+there, a real speed control at 0.85x, and the book navigates to The End when the
+audio does. The timings are modelled from the text and the measured duration
+(`packages/shared/src/narration-timing.ts`, 17 tests) because the synthesiser
+returns none — `DECISIONS.md` §21 has the reasoning and the measurement that
+ruled out asking the synthesiser to read slower.
+
+`packages/shared` now runs its tests. It had a `test/` directory and no `test`
+script, so `sql-constants-sync.test.ts` had never executed in CI or locally.
+
 ## Not proven
 
 - `DECISIONS.md` §14 item 1: the price table is **researched, not invoiced**.

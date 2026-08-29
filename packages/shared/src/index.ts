@@ -10,4 +10,6 @@ export * from './voices.ts';
 export * from './languages.ts';
 export * from './avatars.ts';
 export * from './themes.ts';
+export * from './syllables.ts';
+export * from './narration-timing.ts';
 export type { Database, Json } from './db.ts';

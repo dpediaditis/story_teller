@@ -22,3 +22,31 @@ export const STORY_THEME_EMOJI: Record<StoryTheme, string> = {
   pirates: '\u{1F3F4}\u200D\u2620\uFE0F',
   jungle: '\u{1F334}',
 };
+
+/** What the picker calls each place. */
+export const STORY_THEME_LABEL: Record<StoryTheme, string> = {
+  space: 'Space',
+  dinosaurs: 'Dinosaurs',
+  underwater: 'Underwater',
+  magic: 'Magic',
+  pirates: 'Pirates',
+  jungle: 'Jungle',
+};
+
+/**
+ * "<Name> hasn't been ___ yet." — the nudge at the end of a story.
+ *
+ * A phrase rather than a label, because the sentence it goes in is spoken to a
+ * child. It lives beside the labels so a new theme cannot be added with a
+ * picture and a name but no ending.
+ */
+export const STORY_THEME_INVITATION: Record<StoryTheme, string> = {
+  space: 'all the way out to the stars',
+  dinosaurs: 'back to the days of the dinosaurs',
+  underwater: 'to the bottom of the sea',
+  magic: 'through a door that was not there before',
+  pirates: 'aboard a pirate ship',
+  jungle: 'deep into the jungle',
+};
+
+export const STORY_THEME_LIST = Object.keys(STORY_THEME_LABEL) as StoryTheme[];
