@@ -94,6 +94,14 @@ snapping boundaries onto the narrator's pauses, which cut the mean distance from
 a within-sentence pause to the nearest word boundary from 156ms to 63ms with no
 measurable distortion. `DECISIONS.md` §22 and §23 have the measurements.
 
+**PDF export exists now** (30 Aug 2026). The paywall had been selling "PDF
+export, for printing and keeping" while the string `pdf` appeared nowhere else
+in the repo. Rendered on device with `expo-print` from pictures already
+downloaded, embedded as data URIs so the book does not go blank when the signed
+URLs expire, and handed to the share sheet named after the story. Verified end
+to end on the simulator: a 4.4 MB "Fern's Cosmic Jump.pdf" into Print / Save to
+Files. `DECISIONS.md` §24 has the competitor survey it came out of.
+
 `packages/shared` now runs its tests. It had a `test/` directory and no `test`
 script, so `sql-constants-sync.test.ts` had never executed in CI or locally.
 

@@ -1215,3 +1215,45 @@ word the nearest boundary is no longer obviously the right one. The remaining
 sentence anchors. The reader reads both and falls back to the model for either.
 Timings that do not cover every word of the text are rejected wholesale — half a
 page highlighted correctly and half not is worse than none.
+
+## §24 — What the comparable products offer
+
+A survey of the personalised-storybook and read-along apps (StoryBee, Bedtime
+Stories, PerfectTales, Fable, Little Stories, Oscar Stories, bedtimestory.ai,
+Vooks, Epic). Two findings mattered.
+
+**We were charging for something that did not exist.** "PDF export, for
+printing and keeping" was a bullet on the paywall and a line on the Family
+screen, and the string `pdf` appeared nowhere else in the repository. Every
+comparable product that takes a subscription offers some keepsake output —
+StoryBee prints paperback and hardcover, Fable does print-on-demand,
+StoryJumper sells printed books — and it is the obvious ending for a product
+whose story began as a drawing on paper. Now implemented, on-device, from
+pictures already downloaded.
+
+**Word-level read-along is the category norm, not a differentiator.** Vooks and
+Epic both highlight each word as the narrator says it, for the literacy reason:
+it connects what a word sounds like to what it looks like. §22 and §23 got us
+there.
+
+### Deliberately not built
+
+**Narration in the parent's own voice.** The strongest differentiator in the
+category — StoryBee clones it, Bedtime Stories builds one from a 10-second clip
+in seven languages — and the one a family would most obviously pay for. Not
+built here unilaterally: it needs a provider, a per-family cost model, and a
+consent flow that holds up for a product used by children. That is a product
+decision, not an implementation detail.
+
+**Printed books.** Needs a fulfilment partner and a returns policy.
+
+**A community library of shared stories.** bedtimestory.ai's largest asset is
+59,000 public stories. It is also flatly incompatible with DECISIONS.md §10:
+these stories are built from a photograph of a specific child's drawing.
+
+### Also added
+
+A **sleep timer** in the reader (off / 5 / 10 / 20 minutes), which is standard
+across bedtime apps and obviously right here — a child who falls asleep three
+pages in should not be read to for another six minutes, and a parent who has
+crept out of the room cannot come back to press pause.

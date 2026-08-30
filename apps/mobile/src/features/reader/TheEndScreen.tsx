@@ -7,6 +7,8 @@ import { STORY_THEME_EMOJI, STORY_THEME_INVITATION, STORY_THEME_LIST } from '@pa
 import { Screen, Text, Button, EyebrowLabel } from '../../components';
 import { apiClient } from '../../lib/api';
 import { useSignedMedia } from '../../lib/api/useSignedMedia';
+import { useSession } from '../session/SessionProvider';
+import { exportStoryPdf } from './storyPdf';
 import { colour, inkAlpha, radius, spacing } from '../../theme';
 
 /** D3 — The end. */
@@ -14,8 +16,16 @@ export function TheEndScreen({ storyId }: { storyId: string }) {
   const [story, setStory] = useState<StoryDetailDto | null>(null);
   const [failed, setFailed] = useState(false);
   const [favourited, setFavourited] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const { session } = useSession();
 
-  const { urls } = useSignedMedia([story?.cover?.storageKey]);
+  /* Every picture in the book, because the PDF embeds them. The reader signs
+   * the same set, so this is the batch it would have made anyway. */
+  const { urls } = useSignedMedia(
+    story
+      ? [story.cover?.storageKey, ...story.pages.map((p) => p.illustration?.storageKey)]
+      : [],
+  );
 
   useEffect(() => {
     apiClient
@@ -48,6 +58,25 @@ export function TheEndScreen({ storyId }: { storyId: string }) {
   const leadName = story.characterNames[0] ?? 'Your character';
   const coverUrl = story.cover ? (urls[story.cover.storageKey] ?? null) : null;
   const nextTheme = suggestNextTheme(story.theme, story.id);
+
+  /* DECISIONS.md §8 says the client never ASSERTS entitlement, and this does
+   * not: the PDF is rendered on the device from pictures already downloaded, so
+   * there is no server resource to gate and nothing for the server to check.
+   * Hiding the button is a render decision, which §8 explicitly allows. */
+  const canExport = session?.entitlement?.tier === 'family';
+
+  async function exportPdf() {
+    if (!story || exporting) return;
+    setExporting(true);
+    try {
+      await exportStoryPdf(story, urls);
+    } catch {
+      // Nothing was published and nothing was lost; the button simply comes
+      // back. A modal apology at the end of a bedtime story helps nobody.
+    } finally {
+      setExporting(false);
+    }
+  }
 
   async function toggleFavourite() {
     const next = !favourited;
@@ -103,6 +132,14 @@ export function TheEndScreen({ storyId }: { storyId: string }) {
       </View>
 
       <View style={styles.footer}>
+        {canExport ? (
+          <Button
+            label={exporting ? 'Making the book…' : 'Save as a book (PDF)'}
+            kind="ghost"
+            audience="parent"
+            onPress={() => void exportPdf()}
+          />
+        ) : null}
         <Button label="Read it again" kind="secondary" onPress={() => router.replace(`/story/${storyId}/reader`)} />
         <Button
           label={`Make another story with ${leadName}`}

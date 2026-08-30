@@ -52,6 +52,15 @@ import { colour, inkAlpha, radius, spacing } from '../../theme';
 const SPEEDS = [0.75, 0.85, 1] as const;
 const DEFAULT_SPEED_INDEX = 1;
 
+/**
+ * Stop after this long, in minutes. Off, then a few lengths of a bedtime.
+ *
+ * Standard on bedtime apps and obviously right here: a child who falls asleep
+ * three pages in should not be read to by a phone for another six minutes, and
+ * a parent who has crept out of the room cannot come back to press pause.
+ */
+const SLEEP_TIMERS = [0, 5, 10, 20] as const;
+
 export function ReaderScreen({ storyId }: { storyId: string }) {
   const [story, setStory] = useState<StoryDetailDto | null>(null);
   const [failed, setFailed] = useState(false);
@@ -61,6 +70,7 @@ export function ReaderScreen({ storyId }: { storyId: string }) {
   const [speedIndex, setSpeedIndex] = useState<number>(DEFAULT_SPEED_INDEX);
   const [favourited, setFavourited] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
+  const [sleepIndex, setSleepIndex] = useState(0);
 
   useEffect(() => {
     apiClient
@@ -197,6 +207,18 @@ export function ReaderScreen({ storyId }: { storyId: string }) {
     const shouldBe = pageIndexAtMs(timeline, positionMs);
     if (shouldBe !== null && shouldBe !== pageIndex) setPageIndex(shouldBe);
   }, [autoTurn, playing, timeline, positionMs, pageIndex]);
+
+  /* The sleep timer. Measured from when it was set, not from the start of the
+   * story, so turning it on halfway through means what it says. */
+  const sleepMinutes = SLEEP_TIMERS[sleepIndex] ?? 0;
+  useEffect(() => {
+    if (sleepMinutes === 0) return;
+    const handle = setTimeout(() => {
+      player.pause();
+      setSleepIndex(0);
+    }, sleepMinutes * 60_000);
+    return () => clearTimeout(handle);
+  }, [sleepMinutes, player]);
 
   /* The book closes itself. Reaching the end of the audio is the end of the
    * story, and a child who has been listening should not have to find a button
@@ -409,6 +431,14 @@ export function ReaderScreen({ storyId }: { storyId: string }) {
             <Pressable hitSlop={10} onPress={() => setAutoTurn((v) => !v)}>
               <Text variant="label" color={autoTurn ? colour.violet : inkAlpha.textLabel}>
                 Auto-turn · {autoTurn ? 'On' : 'Off'}
+              </Text>
+            </Pressable>
+            <Pressable
+              hitSlop={10}
+              onPress={() => setSleepIndex((i) => (i + 1) % SLEEP_TIMERS.length)}
+            >
+              <Text variant="label" color={sleepMinutes ? colour.violet : inkAlpha.textLabel}>
+                Sleep · {sleepMinutes ? `${sleepMinutes}m` : 'Off'}
               </Text>
             </Pressable>
           </View>
